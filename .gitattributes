@@ -1,5 +1,6 @@
 * text=auto eol=lf
 
+*.json         text
 *.lock         text
 *.md           text diff=markdown
 *.toml         text

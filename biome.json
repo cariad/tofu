@@ -1,0 +1,19 @@
+{
+  "files": {
+    "ignoreUnknown": true
+  },
+  "formatter": {
+    "lineWidth": 80,
+    "useEditorconfig": true
+  },
+  "json": {
+    "formatter": {
+      "expand": "always"
+    }
+  },
+  "vcs": {
+    "clientKind": "git",
+    "enabled": true,
+    "useIgnoreFile": true
+  }
+}

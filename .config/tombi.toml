@@ -1,0 +1,27 @@
+toml-version = "v1.0.0"
+
+[format.rules]
+line-width = 80
+trailing-comment-alignment = true
+
+# Use only tombi's built-in catalog; we pin every other schema below.
+[schema]
+catalog.paths = ["tombi://www.schemastore.org/api/json/catalog.json"]
+
+# v2026.9.13. Keep in sync with `.config/mise.toml`•`min_version`
+[[schemas]]
+path = """\
+https://raw.githubusercontent.com/jdx/mise/\
+b09482b03fb3914da5ad80d3c833fec63a42ab91\
+/schema/mise.json\
+"""
+include = [".config/mise.toml"]
+
+# v0.2.77. Keep in sync with `.config/mise.toml`•`tools`•`rumdl`
+[[schemas]]
+path = """\
+https://raw.githubusercontent.com/rvben/rumdl/\
+bb84a49a85625b31ecf6c3e58b7bca7c75fbfefb\
+/rumdl.schema.json\
+"""
+include = [".config/rumdl.toml"]
