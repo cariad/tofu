@@ -1,0 +1,39 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.md]
+# We can't set an `indent_size` for Markdown documents because there
+# isn't a single size that suits all situations.
+#
+# For example, this document validly has two and three-space indenting:
+#
+# ```markdown
+# 1. This is quite a long ordered list item,
+#    so I wrap it with three spaces to keep
+#    it aligned.
+# 1. This is a shorter ordered list item.
+#    1. This is a sub list item, indented by
+#       three spaces to align it with its
+#       parent's content.
+#
+# - This is quite a long unordered list
+#   item, so I wrap it with two spaces to
+#   keep it aligned.
+# - This is a shorter unordered list item.
+#   - This is a sub list item, indented by
+#     two spaces to align it with its
+#     parent's content.
+# ```
+
+[*.toml]
+indent_size = 2
+max_line_length = 80
+
+[*.yml]
+indent_size = 2
