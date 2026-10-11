@@ -37,3 +37,12 @@ jobs:
 
       - name: Lint files against .editorconfig
         run: mise run lint:editorconfig
+
+      - name: Lint Markdown files
+        run: mise run lint:markdown
+
+      - name: Lint TOML files
+        run: mise run lint:toml
+
+      - name: Lint web files
+        run: mise run lint:web

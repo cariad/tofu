@@ -1,0 +1,8 @@
+{
+  "recommendations": [
+    "EditorConfig.EditorConfig",
+    "biomejs.biome",
+    "rvben.rumdl",
+    "tombi-toml.tombi"
+  ]
+}
