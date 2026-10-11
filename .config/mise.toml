@@ -1,0 +1,17 @@
+# Keep `min_version` in sync with
+# `.github/workflows/ci.yml`•`jdx/mise-action`•`version`
+min_version = "2026.9.13"
+
+[settings]
+minimum_release_age = "7d"
+
+[tasks.lint]
+description = "Run all linters"
+depends = ["lint:*"]
+
+[tasks."lint:editorconfig"]
+description = "Lint files against .editorconfig"
+run = "editorconfig-checker"
+
+[tools]
+editorconfig-checker = "4.0.2"  # Lint files against .editorconfig
