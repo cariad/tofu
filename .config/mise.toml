@@ -2,7 +2,7 @@
 #
 # - `.github/workflows/ci.yml`•`jdx/mise-action`•`version`
 # - mise's schema URL in `.config/tombi.toml`.
-min_version = "2026.9.13"
+min_version = "2026.10.2"
 
 [settings]
 minimum_release_age = "7d"
@@ -33,9 +33,24 @@ description = "Lint web files"
 depends = ["lint:editorconfig"]
 run = "biome check --error-on-warnings"
 
+[tasks."lint:zizmor"]
+description = "Audit GitHub Actions files"
+# Needs GH_TOKEN for online audits.
+# Keep zizmor's arguments in sync with `lint:zizmor:ci`.
+env = { GH_TOKEN = "{{ exec(command='gh auth token') }}" }
+run = "zizmor --strict-collection ."
+
+[tasks."lint:zizmor:ci"]
+description = "Audit GitHub Actions files in CI"
+# CI passes a token in `GH_TOKEN` for zizmor's online audits.
+# Keep zizmor's arguments in sync with `lint:zizmor`.
+run = "zizmor --strict-collection ."
+
 [tools]
 biome = "2.5.14"                # Lint web files
 editorconfig-checker = "4.0.2"  # Lint files against .editorconfig
+gh = "2.102.0"                  # Get a GitHub token for zizmor
 # Keep in sync with schema URL in `.config/tombi.toml`:
 rumdl = "0.2.77"                # Lint Markdown files
 tombi = "1.5.5"                 # Lint TOML files
+zizmor = "1.30.1"               # Audit GitHub Actions files

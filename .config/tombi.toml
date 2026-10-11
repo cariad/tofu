@@ -8,11 +8,11 @@ trailing-comment-alignment = true
 [schema]
 catalog.paths = ["tombi://www.schemastore.org/api/json/catalog.json"]
 
-# v2026.9.13. Keep in sync with `.config/mise.toml`•`min_version`
+# v2026.10.2. Keep in sync with `.config/mise.toml`•`min_version`
 [[schemas]]
 path = """\
 https://raw.githubusercontent.com/jdx/mise/\
-b09482b03fb3914da5ad80d3c833fec63a42ab91\
+44ea2537166efbe21b19d808355d9914e830941a\
 /schema/mise.json\
 """
 include = [".config/mise.toml"]
