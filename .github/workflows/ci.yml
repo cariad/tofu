@@ -44,6 +44,9 @@ jobs:
       - name: Lint Markdown files
         run: mise run lint:markdown
 
+      - name: Lint shell scripts
+        run: mise run lint:shell
+
       - name: Lint TOML files
         run: mise run lint:toml
 
