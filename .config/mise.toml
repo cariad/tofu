@@ -19,6 +19,12 @@ run = "editorconfig-checker"
 description = "Lint Markdown files"
 run = "rumdl check --deny-config-warnings"
 
+[tasks."lint:shell"]
+description = "Lint shell scripts"
+# Lint every `*.sh` file that Git knows about.
+# `-r` stops GNU xargs running ShellCheck with no files, which fails.
+run = "git ls-files -z --cached --others --exclude-standard -- '*.sh' | xargs -0 -r shellcheck"
+
 [tasks."lint:toml"]
 description = "Lint TOML files"
 run = [
@@ -52,5 +58,8 @@ editorconfig-checker = "4.0.2"  # Lint files against .editorconfig
 gh = "2.102.0"                  # Get a GitHub token for zizmor
 # Keep in sync with schema URL in `.config/tombi.toml`:
 rumdl = "0.2.77"                # Lint Markdown files
+# ShellCheck publishes no attestations or signatures, so its lock entries hold
+# only the checksums that GitHub reports at lock-time.
+shellcheck = "0.11.0"           # Lint shell scripts
 tombi = "1.5.5"                 # Lint TOML files
 zizmor = "1.30.1"               # Audit GitHub Actions files
