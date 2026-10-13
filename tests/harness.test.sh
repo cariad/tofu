@@ -19,6 +19,12 @@ test_assert_eq_fails_when_the_values_differ() {
   [[ $stderr == $'want: want\ngot:  got' ]]
 }
 
+test_assert_contains_fails_when_the_text_is_missing() {
+  capture bash -c 'source tests/lib/assert.sh; assert_contains want got'
+  [[ $status == 1 ]]
+  [[ $stderr == $'want to contain: want\ngot:             got' ]]
+}
+
 # Runs a copy of tests/run.sh in an empty directory, with one test file that
 # holds CONTENT.
 #
