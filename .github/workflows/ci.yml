@@ -8,21 +8,18 @@ on:
 
 permissions: {}
 
+env:
+  # Fail if `.config/mise.lock` is out of date:
+  MISE_LOCKED: 1
+
+  # Don't trust `.config/mise.lock`:
+  MISE_LOCKED_VERIFY_PROVENANCE: 1
+
+  # Ask GitHub, not mise's proxy, for attestations:
+  MISE_USE_VERSIONS_HOST: 0
+
 jobs:
   lint:
-    env:
-      # We don't run `gh` in CI, so don't bother downloading it.
-      MISE_DISABLE_TOOLS: gh
-
-      # Fail if `.config/mise.lock` is out of date:
-      MISE_LOCKED: 1
-
-      # Don't trust `.config/mise.lock`:
-      MISE_LOCKED_VERIFY_PROVENANCE: 1
-
-      # Ask GitHub, not mise's proxy, for attestations:
-      MISE_USE_VERSIONS_HOST: 0
-
     runs-on: ubuntu-24.04
     timeout-minutes: 10
 
@@ -57,3 +54,22 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}  # Enable online audits
         run: mise run lint:zizmor:ci
+
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install mise and the pinned tools
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          cache: false  # Restored tools aren't verified, so don't cache them
+          version: 2026.10.2  # Sync with `.config/mise.toml`•`min_version`
+
+      - name: Run the script tests
+        run: mise run test

@@ -7,6 +7,12 @@ min_version = "2026.10.2"
 [settings]
 minimum_release_age = "7d"
 
+[tasks."gh:login"]
+description = "Sign in with the GitHub CLI"
+run = "gh auth login"
+# Keep the gh version in sync with `lint:zizmor`.
+tools = { gh = "2.102.0" }
+
 [tasks.lint]
 description = "Run all linters"
 depends = ["lint:*"]
@@ -45,6 +51,8 @@ description = "Audit GitHub Actions files"
 # Keep zizmor's arguments in sync with `lint:zizmor:ci`.
 env = { GH_TOKEN = "{{ exec(command='gh auth token') }}" }
 run = "zizmor --strict-collection ."
+# Keep the gh version in sync with `gh:login`.
+tools = { gh = "2.102.0" }
 
 [tasks."lint:zizmor:ci"]
 description = "Audit GitHub Actions files in CI"
@@ -52,10 +60,20 @@ description = "Audit GitHub Actions files in CI"
 # Keep zizmor's arguments in sync with `lint:zizmor`.
 run = "zizmor --strict-collection ."
 
+[tasks.test]
+description = "Run the tests"
+# The tests have their own jq so they don't depend on whichever jq you have.
+#
+# 1.7.1 matches ubuntu-24.04's, which the actions use in CI.
+#
+# There are no published attestations for 1.7.1, so its lock entries hold only
+# the checksums from its `sha256sum.txt`.
+run = "bash tests/run.sh"
+tools = { jq = "1.7.1" }
+
 [tools]
 biome = "2.5.14"                # Lint web files
 editorconfig-checker = "4.0.2"  # Lint files against .editorconfig
-gh = "2.102.0"                  # Get a GitHub token for zizmor
 # Keep in sync with schema URL in `.config/tombi.toml`:
 rumdl = "0.2.77"                # Lint Markdown files
 # ShellCheck publishes no attestations or signatures, so its lock entries hold

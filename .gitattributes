@@ -3,6 +3,7 @@
 *.json         text
 *.lock         text
 *.md           text diff=markdown
+*.sh           text diff=bash
 *.toml         text
 *.yml          text
 
