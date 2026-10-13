@@ -55,6 +55,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}  # Enable online audits
         run: mise run lint:zizmor:ci
 
+      - name: Check the OpenTofu fixtures are formatted
+        run: mise run lint-fixtures
+
   test:
     runs-on: ubuntu-24.04
     timeout-minutes: 10

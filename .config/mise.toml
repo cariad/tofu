@@ -14,8 +14,23 @@ run = "gh auth login"
 tools = { gh = "2.102.0" }
 
 [tasks.lint]
-description = "Run all linters"
+description = "Run all linters except lint-fixtures"
+# ...because "lint-fixtures" installs and runs `tofu` and we don't want to open
+# that gate too wide.
 depends = ["lint:*"]
+
+[tasks.lint-fixtures]
+description = "Lint the OpenTofu fixtures"
+# Not a `lint:*` task, so `mise run lint` never runs `tofu`.
+#
+# OpenTofu is a tool of this task, so it isn't on the PATH for the tests. Keep
+# its version in sync with `required_version` in every
+# `tests/fixtures/*/main.tf`.
+#
+# OpenTofu signs its releases with cosign and GPG, but mise doesn't check the
+# signatures, so its lock entries hold only checksums.
+run = "tofu fmt -check -diff -recursive tests/fixtures"
+tools = { opentofu = "1.13.1" }
 
 [tasks."lint:editorconfig"]
 description = "Lint files against .editorconfig"
