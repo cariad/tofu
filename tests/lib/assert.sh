@@ -21,11 +21,26 @@ capture() {
   stderr=$(cat "$TEST_TMPDIR/stderr")
 }
 
+# Usage: fail MESSAGE
+fail() {
+  echo "$1" >&2
+  return 1
+}
+
 # Usage: assert_eq WANT GOT
 assert_eq() {
   if [[ $1 != "$2" ]]; then
     echo "want: $1" >&2
     echo "got:  $2" >&2
+    return 1
+  fi
+}
+
+# Usage: assert_contains WANT GOT
+assert_contains() {
+  if [[ $2 != *"$1"* ]]; then
+    echo "want to contain: $1" >&2
+    echo "got:             $2" >&2
     return 1
   fi
 }
