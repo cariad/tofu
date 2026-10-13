@@ -43,5 +43,10 @@ indent_size = 2
 [*.toml]
 indent_size = 2
 
+# Captured GitHub API responses are kept exactly as `gh` printed them, without
+# a final newline.
+[tests/fixtures/github/*.json]
+insert_final_newline = unset
+
 [*.yml]
 indent_size = 2

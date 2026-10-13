@@ -22,7 +22,7 @@ A fixture with a `before/` directory is planned against the state from applying 
 
 ## Adding a fixture
 
-1. Add a directory here with a `main.tf`, and a `before/main.tf` if it needs prior state. The generator plans every directory here, and copies only the `*.tf` files in it and its `before/`.
+1. Add a directory here with a `main.tf`, and a `before/main.tf` if it needs prior state. The generator plans every directory here that has a `main.tf`, and copies only the `*.tf` files in it and its `before/`.
 1. If its plan shouldn't exit 2, add it to `expected_status` in `generate.sh`.
 1. Add it to the table below.
 1. Run `mise run lint-fixtures`, then `mise run generate-fixtures`.
@@ -44,3 +44,27 @@ The exit code is the status of `tofu plan -detailed-exitcode`: 0 for no changes,
 | `replacement`                    | Replaces one resource, because its `triggers_replace` changed.                                                                               | 2         |
 | `sensitive-a`, `sensitive-b`     | Creates one resource. The two differ only in a sensitive value.                                                                              | 2         |
 | `unchanged`                      | Has one existing resource that doesn't change.                                                                                               | 0         |
+
+## GitHub API responses
+
+`github/` holds real GitHub API responses, exactly as `gh` printed them. Never edit them; capture them again instead.
+
+`github/comments.json` is a test PR's comments, captured with:
+
+```bash
+mise exec gh@2.102.0 -- gh api --paginate 'repos/cariad/tofu/issues/<PR>/comments?per_page=2' > tests/fixtures/github/comments.json
+```
+
+`per_page=2` makes `gh` fetch several pages, which it joins into one array. The seed comments, oldest first:
+
+| Seed | Author | First line |
+| --- | --- | --- |
+| 1 | A person | No marker. |
+| 2 | A person | A marker for `infra/blog`. |
+| 3 | The bot | A marker for `infra/other`. |
+| 4 | The bot | A marker for `infra/blog`. |
+| 5 | The bot | No marker. |
+| 6 | The bot | No marker; its marker for `infra/second-line` is on line 2. |
+| 7 | The bot | A marker for `infra/blog`. |
+| 8 | The bot | A marker for `infra/blog-old`. |
+| 9 | The bot | A marker that isn't JSON. |
