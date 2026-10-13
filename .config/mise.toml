@@ -25,7 +25,7 @@ description = "Lint the OpenTofu fixtures"
 #
 # OpenTofu is a tool of this task, so it isn't on the PATH for the tests. Keep
 # its version in sync with `required_version` in every
-# `tests/fixtures/*/main.tf`.
+# `tests/fixtures/**/main.tf`.
 #
 # OpenTofu signs its releases with cosign and GPG, but mise doesn't check the
 # signatures, so its lock entries hold only checksums.
