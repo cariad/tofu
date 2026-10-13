@@ -6,6 +6,7 @@
 *.sh           text diff=bash
 *.tf           text
 *.toml         text
+*.txt          text
 *.yml          text
 
 .editorconfig  text

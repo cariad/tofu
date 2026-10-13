@@ -1,0 +1,10 @@
+
+OpenTofu will perform the following actions:
+
+  # terraform_data.example will be imported
+  # (imported from "example-b")
+    resource "terraform_data" "example" {
+        id = "example-b"
+    }
+
+Plan: 1 to import, 0 to add, 0 to change, 0 to destroy.

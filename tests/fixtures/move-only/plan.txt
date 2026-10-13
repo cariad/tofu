@@ -1,0 +1,10 @@
+
+OpenTofu will perform the following actions:
+
+  # terraform_data.old has moved to terraform_data.new
+    resource "terraform_data" "new" {
+        id     = "583ec9e4-2da5-91f0-8d5a-c52d3b9a790f"
+        # (2 unchanged attributes hidden)
+    }
+
+Plan: 0 to add, 0 to change, 0 to destroy.

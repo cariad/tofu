@@ -1,0 +1,3 @@
+
+Planning failed. OpenTofu encountered an error while generating this plan.
+
