@@ -1,0 +1,10 @@
+# Planned against the state from applying `before/`.
+
+terraform {
+  # Keep in sync with `.config/mise.toml`•`lint-fixtures`•`tools`•`opentofu`:
+  required_version = "~> 1.13.1"
+}
+
+resource "terraform_data" "example" {
+  triggers_replace = "after"
+}
