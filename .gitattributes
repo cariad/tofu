@@ -4,6 +4,7 @@
 *.lock         text
 *.md           text diff=markdown
 *.sh           text diff=bash
+*.tf           text
 *.toml         text
 *.yml          text
 

@@ -41,6 +41,12 @@ GitHub Actions to plan and apply OpenTofu changes
    mise run lint
    ```
 
+1. Check the OpenTofu fixtures are formatted. `mise run lint` doesn't include this check.
+
+   ```bash
+   mise run lint-fixtures
+   ```
+
 ### Running the tests
 
 ```bash
