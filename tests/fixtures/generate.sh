@@ -53,6 +53,8 @@ plan() {
 
 for fixture in */; do
   fixture=${fixture%/}
+  # Not every fixture is an OpenTofu module, such as github/.
+  [[ -f $fixture/main.tf ]] || continue
   echo "Planning $fixture"
   work=$(mktemp -d)
   cp "$fixture"/*.tf "$work/"
