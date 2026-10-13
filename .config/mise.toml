@@ -7,6 +7,12 @@ min_version = "2026.10.2"
 [settings]
 minimum_release_age = "7d"
 
+[tasks.generate-fixtures]
+description = "Generate the OpenTofu fixtures' plans"
+# Keep the OpenTofu version in sync with `lint-fixtures`.
+run = "bash tests/fixtures/generate.sh"
+tools = { opentofu = "1.13.1" }
+
 [tasks."gh:login"]
 description = "Sign in with the GitHub CLI"
 run = "gh auth login"
@@ -24,8 +30,8 @@ description = "Lint the OpenTofu fixtures"
 # Not a `lint:*` task, so `mise run lint` never runs `tofu`.
 #
 # OpenTofu is a tool of this task, so it isn't on the PATH for the tests. Keep
-# its version in sync with `required_version` in every
-# `tests/fixtures/**/main.tf`.
+# its version in sync with `generate-fixtures`, and with `required_version` in
+# every `tests/fixtures/**/main.tf`.
 #
 # OpenTofu signs its releases with cosign and GPG, but mise doesn't check the
 # signatures, so its lock entries hold only checksums.
