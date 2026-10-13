@@ -7,6 +7,7 @@ GitHub Actions to plan and apply OpenTofu changes
 ### Required tools
 
 - [mise](https://mise.jdx.dev/)
+- Bash 5 or later.
 
 ### Initial setup
 
@@ -28,10 +29,10 @@ GitHub Actions to plan and apply OpenTofu changes
    mise install
    ```
 
-1. `mise install` will install the GitHub CLI, which you'll need to sign into for `zizmor`'s online audits of the GitHub Actions files.
+1. Log into the GitHub CLI to enable `zizmor`'s online audits of the GitHub Actions files.
 
    ```bash
-   mise exec -- gh auth login
+   mise run gh:login
    ```
 
 1. To verify the setup, run the linters and check they all pass.
@@ -39,3 +40,9 @@ GitHub Actions to plan and apply OpenTofu changes
    ```bash
    mise run lint
    ```
+
+### Running the tests
+
+```bash
+mise run test
+```
