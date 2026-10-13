@@ -1,0 +1,35 @@
+
+OpenTofu used the selected providers to generate the following execution
+plan. Resource actions are indicated with the following symbols:
+  + create
+  ~ update in-place (current -> planned)
+  - destroy
+
+OpenTofu will perform the following actions:
+
+  # terraform_data.created will be created
+  + resource "terraform_data" "created" {
+      + id     = (known after apply)
+      + input  = "example"
+      + output = (known after apply)
+    }
+
+  # terraform_data.deleted will be destroyed
+  # (because terraform_data.deleted is not in configuration)
+  - resource "terraform_data" "deleted" {
+      - id     = "3a7f41eb-1283-4b38-2d18-ee75742686e0" -> null
+      - input  = "example" -> null
+      - output = "example" -> null
+    }
+
+  # terraform_data.updated will be updated in-place
+  ~ resource "terraform_data" "updated" {
+        id     = "58f43e5c-5a2a-10f0-2806-d6d2700a8eb8"
+      ~ input  = "before" -> "after"
+      ~ output = "before" -> (known after apply)
+    }
+
+Plan: 1 to add, 1 to change, 1 to destroy.
+
+Changes to Outputs:
+  + example = "example"

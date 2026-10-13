@@ -1,6 +1,10 @@
 {
   "files": {
-    "ignoreUnknown": true
+    "ignoreUnknown": true,
+    "includes": [
+      "**",
+      "!tests/fixtures/**/*.json"
+    ]
   },
   "formatter": {
     "lineWidth": 80,
