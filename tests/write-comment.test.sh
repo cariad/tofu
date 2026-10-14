@@ -6,10 +6,17 @@
 # shellcheck source=tests/lib/assert.sh
 source tests/lib/assert.sh
 
-# Puts a stand-in `gh` in $TEST_TMPDIR/bin. It logs each call's arguments to
-# $TEST_TMPDIR/gh.log and any request body to $TEST_TMPDIR/gh.stdin. It prints
-# GH_HEAD (or `abc`) as the PR's head, the captured comments as the listing, and
-# a URL for a write. A call whose arguments contain GH_FAIL fails instead.
+# Puts a stand-in `gh` in $TEST_TMPDIR/bin.
+#
+# Logs each call's arguments to $TEST_TMPDIR/gh.log and any request body to
+# $TEST_TMPDIR/gh.stdin.
+#
+# Prints GH_HEAD (or `abc`) as the PR's head, and the captured comments as the
+# listing, with $TEST_TMPDIR/gh.extra added after the first.
+#
+# A write prints the comment's ID and URL; a new comment's ID is 9000000001.
+#
+# A call whose arguments contain GH_FAIL fails instead.
 stub_gh() {
   mkdir -p "$TEST_TMPDIR/bin"
   cat >"$TEST_TMPDIR/bin/gh" <<'EOF'
@@ -24,8 +31,21 @@ if [[ -n ${GH_FAIL:-} && $* == *"$GH_FAIL"* ]]; then
 fi
 case $* in
   *" repos/cariad/tofu/pulls/7 "*) echo "${GH_HEAD:-abc}" ;;
-  *--paginate*) cat tests/fixtures/github/comments.json ;;
-  *) echo "https://github.com/cariad/tofu/pull/7#issuecomment-1" ;;
+  *--paginate*)
+    if [[ -e $TEST_TMPDIR/gh.listed && -e $TEST_TMPDIR/gh.extra ]]; then
+      jq -s add tests/fixtures/github/comments.json "$TEST_TMPDIR/gh.extra"
+    else
+      cat tests/fixtures/github/comments.json
+    fi
+    touch "$TEST_TMPDIR/gh.listed"
+    ;;
+  *"--method POST "*) echo "9000000001 https://github.com/cariad/tofu/pull/7#issuecomment-9000000001" ;;
+  *"--method PATCH "*)
+    args=$*
+    id=${args##*comments/}
+    id=${id%% *}
+    echo "$id https://github.com/cariad/tofu/pull/7#issuecomment-$id"
+    ;;
 esac
 EOF
   chmod +x "$TEST_TMPDIR/bin/gh"
@@ -36,6 +56,19 @@ EOF
 # Usage: marker DIR
 marker() {
   printf '<!-- cariad/tofu {"v":1,"dir":"%s"} -->\n' "$1"
+}
+
+# Makes every listing after the first include copies of Seed 4, moved to
+# infra/new, with the given IDs, as if other runs had just created them.
+#
+# Usage: also_created ID...
+also_created() {
+  local ids
+  ids=$(printf '%s,' "$@")
+  jq --argjson ids "[${ids%,}]" --arg marker "$(marker infra/new)" '
+    [.[] | select(.id == 6153211377)][0] as $seed
+    | [$ids[] | $seed + {id: ., body: $marker}]' \
+    tests/fixtures/github/comments.json >"$TEST_TMPDIR/gh.extra"
 }
 
 # Writes DIR's comment (infra/blog's by default) for PR 7, planned at `abc`.
@@ -50,17 +83,35 @@ write() {
 test_updates_the_existing_comment() {
   write
   assert_eq 0 "$status"
-  assert_eq "https://github.com/cariad/tofu/pull/7#issuecomment-1" "$stdout"
   # Seed 4 is the bot's oldest comment for infra/blog.
-  assert_contains "api --method PATCH repos/cariad/tofu/issues/comments/6153211377 --input - --jq .html_url" "$(<"$TEST_TMPDIR/gh.log")"
+  assert_eq "https://github.com/cariad/tofu/pull/7#issuecomment-6153211377" "$stdout"
+  assert_contains "api --method PATCH repos/cariad/tofu/issues/comments/6153211377 --input -" "$(<"$TEST_TMPDIR/gh.log")"
   [[ $(<"$TEST_TMPDIR/gh.log") != *POST* ]] || fail "it created a comment as well"
 }
 
 test_creates_a_comment_when_there_is_none() {
   DIR=infra/new write
   assert_eq 0 "$status"
-  assert_contains "api --method POST repos/cariad/tofu/issues/7/comments --input - --jq .html_url" "$(<"$TEST_TMPDIR/gh.log")"
+  assert_eq "https://github.com/cariad/tofu/pull/7#issuecomment-9000000001" "$stdout"
+  assert_contains "api --method POST repos/cariad/tofu/issues/7/comments --input -" "$(<"$TEST_TMPDIR/gh.log")"
   [[ $(<"$TEST_TMPDIR/gh.log") != *PATCH* ]] || fail "it updated a comment as well"
+}
+
+test_keeps_a_new_comment_that_won_a_race() {
+  also_created 9000000001
+  DIR=infra/new write
+  assert_eq 0 "$status"
+  assert_eq "https://github.com/cariad/tofu/pull/7#issuecomment-9000000001" "$stdout"
+  [[ $(<"$TEST_TMPDIR/gh.log") != *DELETE* ]] || fail "it deleted its comment"
+}
+
+test_gives_way_to_an_older_comment_after_losing_a_race() {
+  also_created 9000000000 9000000001
+  DIR=infra/new write
+  assert_eq 0 "$status"
+  assert_contains "api --method DELETE repos/cariad/tofu/issues/comments/9000000001" "$(<"$TEST_TMPDIR/gh.log")"
+  assert_contains "api --method PATCH repos/cariad/tofu/issues/comments/9000000000 --input -" "$(<"$TEST_TMPDIR/gh.log")"
+  assert_eq "https://github.com/cariad/tofu/pull/7#issuecomment-9000000000" "$stdout"
 }
 
 test_lists_every_page_of_comments() {

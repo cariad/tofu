@@ -13,8 +13,8 @@
 # A re-run plans its original commit, so if the PR has moved on since, this
 # writes nothing and leaves the comment to the newer run.
 #
-# Two runs can't race to write, because consumers run plans in a per-PR
-# concurrency group that cancels the older run.
+# If two runs create a comment at once, the newer comment gives way to the
+# older one, so only the oldest is left.
 set -euo pipefail
 
 # An empty HEAD_SHA would make every run skip writing, so refuse empty inputs.
@@ -32,18 +32,35 @@ if [[ $current != "$HEAD_SHA" ]]; then
   exit 0
 fi
 
-existing=$(gh api --paginate "repos/$REPO/issues/$PR/comments?per_page=100" | bash "$(dirname "$0")/find-comment.sh")
+# Lists the PR's comments and prints DIR's plan comment, or nothing.
+find_comment() {
+  gh api --paginate "repos/$REPO/issues/$PR/comments?per_page=100" | bash "$(dirname "$0")/find-comment.sh"
+}
 
 # Sends the body as JSON on standard input, so it arrives exactly as written,
-# and prints the comment's URL.
+# and prints the comment's ID and URL.
 #
 # Usage: send METHOD ENDPOINT
 send() {
-  jq -n --rawfile body "$BODY" '{body: $body}' | gh api --method "$1" "$2" --input - --jq .html_url
+  jq -n --rawfile body "$BODY" '{body: $body}' |
+    gh api --method "$1" "$2" --input - --jq '"\(.id) \(.html_url)"'
 }
 
+existing=$(find_comment)
+
 if [[ -n $existing ]]; then
-  send PATCH "repos/$REPO/issues/comments/$(jq -r .id <<<"$existing")"
+  sent=$(send PATCH "repos/$REPO/issues/comments/$(jq -r .id <<<"$existing")")
 else
-  send POST "repos/$REPO/issues/$PR/comments"
+  sent=$(send POST "repos/$REPO/issues/$PR/comments")
+
+  # Another run may have created a comment at the same time. Only the oldest
+  # counts, so if that isn't this one, delete this one and update that instead.
+  oldest=$(find_comment | jq -r .id)
+
+  if [[ -n $oldest && $oldest != "${sent%% *}" ]]; then
+    gh api --method DELETE "repos/$REPO/issues/comments/${sent%% *}" --silent
+    sent=$(send PATCH "repos/$REPO/issues/comments/$oldest")
+  fi
 fi
+
+echo "${sent#* }"
