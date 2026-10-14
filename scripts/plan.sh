@@ -87,9 +87,19 @@ child=
 trap 'stop 130' INT
 trap 'stop 143' TERM
 
+# Stops tofu, giving it up to 5 seconds to finish, then exits with STATUS. The
+# runner sends SIGTERM 7.5 seconds after SIGINT, so this ends first.
+#
 # Usage: stop STATUS
 stop() {
-  [[ -z $child ]] || kill "$child" 2>/dev/null
+  if [[ -n $child ]]; then
+    kill "$child" 2>/dev/null || true
+    for _ in {1..50}; do
+      kill -0 "$child" 2>/dev/null || break
+      sleep 0.1
+    done
+  fi
+
   exit "$1"
 }
 

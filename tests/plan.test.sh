@@ -14,7 +14,7 @@ source tests/lib/assert.sh
 # - `plan` writes a plan file to its `-out` path, notes what it sees in
 #   $TEST_TMPDIR/tofu.seen, prints PLAN_SAYS if it's set, and exits PLAN_STATUS
 #   (default 2). With PLAN_HANGS set, it writes its PID to $TEST_TMPDIR/tofu.pid
-#   and sleeps instead.
+#   and sleeps instead, ignoring SIGTERM if PLAN_HANGS is `stubborn`.
 # - `show` prints the `-chdir` directory's plan.txt, or plan.json with `-json`,
 #   and exits SHOW_STATUS (default 0).
 stub_tofu() {
@@ -41,6 +41,7 @@ case "$1 ${2:-}" in
     [[ -z ${PLAN_SAYS:-} ]] || echo "$PLAN_SAYS"
     if [[ -n ${PLAN_HANGS:-} ]]; then
       echo $$ >"$TEST_TMPDIR/tofu.pid"
+      [[ $PLAN_HANGS != stubborn ]] || trap '' TERM
       exec sleep 60
     fi
     exit "${PLAN_STATUS:-2}"
@@ -256,16 +257,18 @@ test_refuses_jq_1_6() {
   assert_eq "::error::The runner's jq is too old. The plan action needs jq 1.7 or later." "$stderr"
 }
 
-# Runs the action's `run:` line as the runner does, stops it as the runner does
-# when the job is cancelled or times out, and checks that tofu stops and the
-# plan is deleted.
+# Runs the action's `run:` line as the runner does, in the background, and once
+# tofu is planning, stops the step as the runner does when the job is cancelled
+# or times out.
+#
+# Sets `status` to the step's exit status.
 #
 # A bash started in the background ignores SIGINT, so only the runner's SIGTERM
-# is sent here.
-test_deletes_the_plan_when_the_runner_stops_the_step() {
+# is sent.
+stop_the_step_while_planning() {
   stub_tofu
   sed -n 's/^ *run: //p' plan/action.yml >"$TEST_TMPDIR/step.sh"
-  PLAN_HANGS=1 GITHUB_ACTION_PATH=$PWD/plan in_step \
+  GITHUB_ACTION_PATH=$PWD/plan in_step \
     bash --noprofile --norc -e -o pipefail "$TEST_TMPDIR/step.sh" >/dev/null 2>&1 &
   local pid=$! i
   for ((i = 0; i < 100; i++)); do
@@ -281,14 +284,18 @@ test_deletes_the_plan_when_the_runner_stops_the_step() {
 
   status=0
   wait "$pid" || status=$?
+}
+
+test_stops_tofu_and_deletes_the_plan_when_the_runner_stops_the_step() {
+  PLAN_HANGS=1 stop_the_step_while_planning
   assert_eq 143 "$status"
   assert_eq "" "$(ls -A "$TEST_TMPDIR/runner-temp")"
+  ! kill -0 "$(<"$TEST_TMPDIR/tofu.pid")" 2>/dev/null || fail "the step ended before tofu stopped"
+}
 
-  for ((i = 0; i < 10; i++)); do
-    kill -0 "$(<"$TEST_TMPDIR/tofu.pid")" 2>/dev/null || return 0
-    sleep 0.1
-  done
-
-  kill "$(<"$TEST_TMPDIR/tofu.pid")"
-  fail "tofu kept running"
+test_deletes_the_plan_when_tofu_will_not_stop() {
+  PLAN_HANGS=stubborn stop_the_step_while_planning
+  kill -KILL "$(<"$TEST_TMPDIR/tofu.pid")"
+  assert_eq 143 "$status"
+  assert_eq "" "$(ls -A "$TEST_TMPDIR/runner-temp")"
 }
