@@ -1,0 +1,30 @@
+name: OpenTofu plan
+description: Plans an OpenTofu root module for a pull request
+
+inputs:
+  working-directory:
+    description: >-
+      The root module's directory, relative to the workspace, such as
+      `infra/blog`. A leading `./` and any trailing `/` are removed, and it may
+      contain only A-Z, a-z, 0-9, `.`, `_`, `/` and `-`.
+    required: false
+    default: .
+
+outputs:
+  changes:
+    description: >-
+      `true` if the plan has changes, or `false` if it has none. Empty if the
+      plan failed.
+    value: ${{ steps.plan.outputs.changes }}
+
+runs:
+  using: composite
+  steps:
+    - name: Plan
+      id: plan
+      shell: bash
+      env:
+        WORKING_DIRECTORY: ${{ inputs.working-directory }}
+      # `exec`, so the runner's signals reach plan.sh and it deletes the plan
+      # when the job is cancelled or times out.
+      run: exec bash "$GITHUB_ACTION_PATH/../scripts/plan.sh"
