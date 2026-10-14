@@ -208,6 +208,18 @@ test_refuses_a_working_directory_with_other_characters() {
   [[ ! -e $TEST_TMPDIR/tofu.log ]] || fail "it ran tofu anyway"
 }
 
+test_refuses_a_working_directory_outside_the_workspace_or_spelt_oddly() {
+  local dir
+
+  for dir in /tmp .. ../tests tests//fixtures/changes tests/./fixtures/changes ././tests/fixtures/changes tests/fixtures/changes/..; do
+    WORKING_DIRECTORY=$dir run_plan
+    assert_eq "$dir: 1" "$dir: $status"
+    assert_eq "::error::working-directory must be a path inside the workspace, such as infra/blog, without empty, . or .. parts." "$stderr"
+  done
+
+  [[ ! -e $TEST_TMPDIR/tofu.log ]] || fail "it ran tofu anyway"
+}
+
 test_refuses_a_working_directory_that_does_not_exist() {
   WORKING_DIRECTORY=tests/fixtures/missing run_plan
   assert_eq 1 "$status"

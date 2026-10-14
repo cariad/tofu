@@ -57,6 +57,12 @@ if [[ -z $dir || $dir == *[!A-Za-z0-9._/-]* ]]; then
   fail "working-directory must be a directory whose name has only A-Z, a-z, 0-9, ., _, / and -."
 fi
 
+# One root module must always have the same `dir`, inside the workspace, so
+# only a lone `.` may be a `.` part, and there are no empty or `..` parts.
+if [[ $dir != . && ( $dir == /* || /$dir/ == *//* || /$dir/ == */./* || /$dir/ == */../* ) ]]; then
+  fail "working-directory must be a path inside the workspace, such as infra/blog, without empty, . or .. parts."
+fi
+
 [[ -d $dir ]] || fail "working-directory $dir isn't a directory."
 
 export TF_IN_AUTOMATION=1 TF_INPUT=0

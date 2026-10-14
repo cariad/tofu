@@ -6,7 +6,8 @@ inputs:
     description: >-
       The root module's directory, relative to the workspace, such as
       `infra/blog`. A leading `./` and any trailing `/` are removed, and it may
-      contain only A-Z, a-z, 0-9, `.`, `_`, `/` and `-`.
+      contain only A-Z, a-z, 0-9, `.`, `_`, `/` and `-`. It can't start with
+      `/` or have empty, `.` or `..` parts, except `.` itself.
     required: false
     default: .
 
