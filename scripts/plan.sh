@@ -65,6 +65,15 @@ fi
 
 [[ -d $dir ]] || fail "working-directory $dir isn't a directory."
 
+# A symlink could still lead outside the workspace, so compare where both
+# really are.
+real=$(cd "$dir" && pwd -P)
+
+workspace=$(pwd -P)
+
+[[ $real == "$workspace" || $real == "$workspace"/* ]] ||
+  fail "working-directory $dir is outside the workspace."
+
 export TF_IN_AUTOMATION=1 TF_INPUT=0
 
 # TF_LOG output can include secrets, such as request bodies, so it's never

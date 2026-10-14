@@ -221,6 +221,19 @@ test_refuses_a_working_directory_outside_the_workspace_or_spelt_oddly() {
   [[ ! -e $TEST_TMPDIR/tofu.log ]] || fail "it ran tofu anyway"
 }
 
+test_refuses_a_working_directory_that_links_outside_the_workspace() {
+  stub_tofu
+  touch "$TEST_TMPDIR/output" "$TEST_TMPDIR/summary"
+  mkdir "$TEST_TMPDIR/workspace" "$TEST_TMPDIR/elsewhere"
+  ln -s "$TEST_TMPDIR/elsewhere" "$TEST_TMPDIR/workspace/infra"
+  # shellcheck disable=SC2016 # $0, $1 and $2 are for the inner bash.
+  WORKING_DIRECTORY=infra capture in_step \
+    bash -c 'cd "$1" && exec "$0" "$2"' "$BASH" "$TEST_TMPDIR/workspace" "$PWD/scripts/plan.sh"
+  assert_eq 1 "$status"
+  assert_eq "::error::working-directory infra is outside the workspace." "$stderr"
+  [[ ! -e $TEST_TMPDIR/tofu.log ]] || fail "it ran tofu anyway"
+}
+
 test_refuses_a_working_directory_that_does_not_exist() {
   WORKING_DIRECTORY=tests/fixtures/missing run_plan
   assert_eq 1 "$status"
