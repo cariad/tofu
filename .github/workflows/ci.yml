@@ -76,3 +76,68 @@ jobs:
 
       - name: Run the script tests
         run: mise run test
+
+  test-plan:
+    # Runs the plan action on some of the fixtures, as a consumer would. The
+    # action only runs on pull_request.
+    if: github.event_name == 'pull_request'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - ubuntu-24.04
+          - ubuntu-26.04
+        fixture:
+          - changes
+          - empty
+          - failing-precondition
+        include:
+          - fixture: changes
+            outcome: success
+            changes: "true"
+          - fixture: empty
+            outcome: success
+            changes: "false"
+          - fixture: failing-precondition
+            outcome: failure
+            changes: ""
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install mise and OpenTofu
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        env:
+          # Only in this step, so only this job gets OpenTofu.
+          MISE_OPENTOFU_VERSION: 1.13.1  # Sync with `.config/mise.toml`•`lint-fixtures`•`tools`•`opentofu`
+        with:
+          cache: false  # Restored tools aren't verified, so don't cache them
+          install_args: opentofu  # Only OpenTofu, not the linters
+          version: 2026.10.2  # Sync with `.config/mise.toml`•`min_version`
+
+      - name: Plan the fixture
+        id: plan
+        continue-on-error: ${{ matrix.outcome == 'failure' }}
+        uses: $/plan
+        with:
+          working-directory: tests/fixtures/${{ matrix.fixture }}
+
+      - name: Check the outcome, the changes output and the clean-up
+        env:
+          CHANGES: ${{ steps.plan.outputs.changes }}
+          OUTCOME: ${{ steps.plan.outcome }}
+          WANT_CHANGES: ${{ matrix.changes }}
+          WANT_OUTCOME: ${{ matrix.outcome }}
+        run: |
+          echo "Outcome: $OUTCOME. Changes: \"$CHANGES\"."
+          [[ $OUTCOME == "$WANT_OUTCOME" && $CHANGES == "$WANT_CHANGES" ]]
+          if compgen -G "$RUNNER_TEMP/cariad-tofu.*"; then
+            echo "::error::The plan's private directory is still there."
+            exit 1
+          fi

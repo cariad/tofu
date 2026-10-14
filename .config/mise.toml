@@ -30,8 +30,11 @@ description = "Lint the OpenTofu fixtures"
 # Not a `lint:*` task, so `mise run lint` never runs `tofu`.
 #
 # OpenTofu is a tool of this task, so it isn't on the PATH for the tests. Keep
-# its version in sync with `generate-fixtures`, and with `required_version` in
-# every `tests/fixtures/**/main.tf`.
+# its version in sync with:
+#
+# - `generate-fixtures`
+# - `required_version` in every `tests/fixtures/**/main.tf`
+# - `MISE_OPENTOFU_VERSION` in `.github/workflows/ci.yml`•`test-plan`
 #
 # OpenTofu signs its releases with cosign and GPG, but mise doesn't check the
 # signatures, so its lock entries hold only checksums.
