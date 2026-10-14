@@ -260,8 +260,13 @@ test_deletes_the_plan_when_the_runner_stops_the_step() {
     [[ -s $TEST_TMPDIR/tofu.pid ]] && break
     sleep 0.1
   done
+
   [[ -s $TEST_TMPDIR/tofu.pid ]] || fail "tofu plan never started"
-  kill -TERM "$pid"
+
+  # $pid is the subshell running in_step. The runner signals the step's own
+  # process, plan.sh after its `exec`, which started tofu.
+  kill -TERM $(($(ps -o ppid= -p "$(<"$TEST_TMPDIR/tofu.pid")")))
+
   status=0
   wait "$pid" || status=$?
   assert_eq 143 "$status"
