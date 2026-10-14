@@ -245,9 +245,11 @@ test_refuses_jq_1_6() {
 }
 
 # Runs the action's `run:` line as the runner does, stops it as the runner does
-# when the job is cancelled or times out, and checks the plan is deleted. The
-# runner sends SIGINT first, but bash holds that until tofu finishes, so only
-# SIGTERM is sent here.
+# when the job is cancelled or times out, and checks that tofu stops and the
+# plan is deleted.
+#
+# A bash started in the background ignores SIGINT, so only the runner's SIGTERM
+# is sent here.
 test_deletes_the_plan_when_the_runner_stops_the_step() {
   stub_tofu
   sed -n 's/^ *run: //p' plan/action.yml >"$TEST_TMPDIR/step.sh"
@@ -262,8 +264,14 @@ test_deletes_the_plan_when_the_runner_stops_the_step() {
   kill -TERM "$pid"
   status=0
   wait "$pid" || status=$?
-  # As on the runner, the signal doesn't reach tofu.
-  kill "$(<"$TEST_TMPDIR/tofu.pid")"
   assert_eq 143 "$status"
   assert_eq "" "$(ls -A "$TEST_TMPDIR/runner-temp")"
+
+  for ((i = 0; i < 10; i++)); do
+    kill -0 "$(<"$TEST_TMPDIR/tofu.pid")" 2>/dev/null || return 0
+    sleep 0.1
+  done
+
+  kill "$(<"$TEST_TMPDIR/tofu.pid")"
+  fail "tofu kept running"
 }

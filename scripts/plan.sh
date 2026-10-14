@@ -14,8 +14,10 @@
 #
 # The plan file and the JSON plan hold secrets in plain text, so they're only
 # written to a private directory under RUNNER_TEMP, which is deleted when this
-# script exits. The action runs this script with `exec`, so the runner's signals
-# reach it when the job is cancelled or times out.
+# script exits.
+#
+# The action runs this script with `exec`, so the runner's signals reach it when
+# the job is cancelled or times out, and it stops tofu then too.
 set -euo pipefail
 
 # Everything this script and tofu write is private to the runner's user.
@@ -69,21 +71,39 @@ run_url=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
 
 tmp=$(mktemp -d "${RUNNER_TEMP:?}/cariad-tofu.XXXXXX")
 
-# Only an EXIT trap. Bash runs it on the SIGTERM that the runner sends 7.5
-# seconds after cancelling, even while tofu runs. An INT or TERM trap would wait
-# for tofu to finish, and the runner kills bash first.
 trap 'rm -rf -- "$tmp"' EXIT
+
+# When the job is cancelled or times out, the runner sends this script SIGINT,
+# then SIGTERM. Bash only acts on a trapped signal straight away while it's in
+# `wait`, so tofu runs in the background. The trap stops tofu and exits, which
+# runs the EXIT trap.
+child=
+trap 'stop 130' INT
+trap 'stop 143' TERM
+
+# Usage: stop STATUS
+stop() {
+  [[ -z $child ]] || kill "$child" 2>/dev/null
+  exit "$1"
+}
+
+# Usage: wait_for COMMAND [ARG...]
+wait_for() {
+  "$@" &
+  child=$!
+  wait "$child"
+}
 
 # Runs init, plan and show. Returns 0 if the plan has no changes, 2 if it has
 # some, and 1 if any of them fails. `set -e` doesn't apply in a function whose
 # status is tested, hence each `|| return 1`.
 run_tofu() {
   local status=0
-  tofu -chdir="$dir" init -input=false -lockfile=readonly || return 1
-  tofu -chdir="$dir" plan -input=false -lock=false -no-color -detailed-exitcode -out="$tmp/plan" || status=$?
+  wait_for tofu -chdir="$dir" init -input=false -lockfile=readonly || return 1
+  wait_for tofu -chdir="$dir" plan -input=false -lock=false -no-color -detailed-exitcode -out="$tmp/plan" || status=$?
   ((status == 0 || status == 2)) || return 1
-  tofu -chdir="$dir" show -no-color "$tmp/plan" >"$tmp/plan.txt" || return 1
-  tofu -chdir="$dir" show -json "$tmp/plan" >"$tmp/plan.json" || return 1
+  wait_for tofu -chdir="$dir" show -no-color "$tmp/plan" >"$tmp/plan.txt" || return 1
+  wait_for tofu -chdir="$dir" show -json "$tmp/plan" >"$tmp/plan.json" || return 1
   return "$status"
 }
 
