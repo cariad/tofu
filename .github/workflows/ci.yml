@@ -125,12 +125,15 @@ jobs:
           - fixture: changes
             outcome: success
             changes: "true"
+            status: planned
           - fixture: empty
             outcome: success
             changes: "false"
+            status: planned
           - fixture: failing-precondition
             outcome: failure
             changes: ""
+            status: plan-failed
 
     steps:
       - name: Check out
@@ -169,12 +172,13 @@ jobs:
             exit 1
           fi
 
-      - name: Check the PR has one comment for the fixture, from this commit
+      - name: Check the PR has one comment for the fixture, from this commit, with its status
         env:
           DIR: tests/fixtures/${{ matrix.fixture }}
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
           SHA: ${{ github.event.pull_request.head.sha }}
+          WANT_STATUS: ${{ matrix.status }}
         run: |
           gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments?per_page=100" >"$RUNNER_TEMP/comments.json"
 
@@ -194,9 +198,9 @@ jobs:
             exit 1
           fi
 
-          sha=$(jq -r '.body | split("\n")[0] | capture("^<!-- cariad/tofu (?<json>.*) -->$").json | fromjson | .sha' <<<"$comment")
-          if [[ $sha != "$SHA" ]]; then
-            echo "::error::The plan comment for $DIR is from $sha, not $SHA."
+          marker=$(jq -r '.body | split("\n")[0] | capture("^<!-- cariad/tofu (?<json>.*) -->$").json | fromjson | "\(.status) at \(.sha)"' <<<"$comment")
+          if [[ $marker != "$WANT_STATUS at $SHA" ]]; then
+            echo "::error::The plan comment for $DIR is $marker, not $WANT_STATUS at $SHA."
             exit 1
           fi
 

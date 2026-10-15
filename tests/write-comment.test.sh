@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 #
-# Tests for scripts/write-comment.sh, with a stand-in `gh` that lists the
-# comments captured from a real PR.
+# Tests for scripts/write-comment.sh, with a stand-in `gh` that answers with
+# responses captured from real PRs. tests/fixtures/README.md lists them.
 
 # shellcheck source=tests/lib/assert.sh
 source tests/lib/assert.sh
@@ -16,82 +16,79 @@ marker() {
   printf '<!-- cariad/tofu {"v":1,"dir":"%s"} -->\n' "$1"
 }
 
-# Makes every listing after the first include copies of Seed 4, moved to
-# infra/new, with the given IDs, as if other runs had just created them.
-#
-# Usage: also_created ID...
-also_created() {
-  local ids
-  ids=$(printf '%s,' "$@")
-  jq --argjson ids "[${ids%,}]" --arg marker "$(marker infra/new)" '
-    [.[] | select(.id == 6153211377)][0] as $seed
-    | [$ids[] | $seed + {id: ., body: $marker}]' \
-    tests/fixtures/github/comments.json >"$TEST_TMPDIR/gh.extra"
-}
-
-# Writes DIR's comment (infra/blog's by default) for PR 7, planned at `abc`.
+# Writes DIR's comment (infra/blog's by default) for PR 18, planned at the PR's
+# head unless HEAD_SHA says otherwise.
 write() {
   stub_gh
   local dir=${DIR:-infra/blog}
   [[ -f $TEST_TMPDIR/body ]] || { marker "$dir" && echo 'The body.'; } >"$TEST_TMPDIR/body"
-  REPO=cariad/tofu PR=7 DIR=$dir HEAD_SHA=${HEAD_SHA-abc} BODY=$TEST_TMPDIR/body \
+  REPO=cariad/tofu PR=18 DIR=$dir HEAD_SHA=${HEAD_SHA-$(pr_head)} BODY=$TEST_TMPDIR/body \
     PATH=$TEST_TMPDIR/bin:$PATH capture bash scripts/write-comment.sh
 }
 
 test_updates_the_existing_comment() {
-  write
+  # The race left two comments for infra/new, and the older counts.
+  STUB_COMMENTS=race-comments.json DIR=infra/new write
   assert_eq 0 "$status"
-  # Seed 4 is the bot's oldest comment for infra/blog.
-  assert_eq "https://github.com/cariad/tofu/pull/7#issuecomment-6153211377" "$stdout"
-  assert_contains "api --method PATCH repos/cariad/tofu/issues/comments/6153211377 --input -" "$(<"$TEST_TMPDIR/gh.log")"
+  assert_eq "https://github.com/cariad/tofu/pull/18#issuecomment-6186912661" "$stdout"
+  assert_contains "api --method PATCH repos/cariad/tofu/issues/comments/6186912661 --input -" "$(<"$TEST_TMPDIR/gh.log")"
   [[ $(<"$TEST_TMPDIR/gh.log") != *POST* ]] || fail "it created a comment as well"
+}
+
+test_updates_the_bots_comment_not_an_older_persons() {
+  # Seed 2, a person's comment with infra/blog's marker, is older than Seed 4,
+  # the bot's oldest. There's no captured answer for updating Seed 4, so this
+  # only checks the request.
+  write
+  assert_contains "api --method PATCH repos/cariad/tofu/issues/comments/6153211377 --input -" "$(<"$TEST_TMPDIR/gh.log")"
 }
 
 test_creates_a_comment_when_there_is_none() {
   DIR=infra/new write
   assert_eq 0 "$status"
-  assert_eq "https://github.com/cariad/tofu/pull/7#issuecomment-9000000001" "$stdout"
-  assert_contains "api --method POST repos/cariad/tofu/issues/7/comments --input -" "$(<"$TEST_TMPDIR/gh.log")"
+  assert_eq "https://github.com/cariad/tofu/pull/18#issuecomment-6186912661" "$stdout"
+  assert_contains "api --method POST repos/cariad/tofu/issues/18/comments --input -" "$(<"$TEST_TMPDIR/gh.log")"
   [[ $(<"$TEST_TMPDIR/gh.log") != *PATCH* ]] || fail "it updated a comment as well"
 }
 
 test_keeps_a_new_comment_that_won_a_race() {
-  also_created 9000000001
-  DIR=infra/new write
+  # It created the race's first comment, the older of the two.
+  STUB_LATER_COMMENTS=race-comments.json DIR=infra/new write
   assert_eq 0 "$status"
-  assert_eq "https://github.com/cariad/tofu/pull/7#issuecomment-9000000001" "$stdout"
+  assert_eq "https://github.com/cariad/tofu/pull/18#issuecomment-6186912661" "$stdout"
   [[ $(<"$TEST_TMPDIR/gh.log") != *DELETE* ]] || fail "it deleted its comment"
 }
 
 test_gives_way_to_an_older_comment_after_losing_a_race() {
-  also_created 9000000000 9000000001
-  DIR=infra/new write
+  # It created the race's second comment, the newer of the two.
+  STUB_CREATED=created-2.json STUB_LATER_COMMENTS=race-comments.json DIR=infra/new write
   assert_eq 0 "$status"
-  assert_contains "api --method DELETE repos/cariad/tofu/issues/comments/9000000001" "$(<"$TEST_TMPDIR/gh.log")"
-  assert_contains "api --method PATCH repos/cariad/tofu/issues/comments/9000000000 --input -" "$(<"$TEST_TMPDIR/gh.log")"
-  assert_eq "https://github.com/cariad/tofu/pull/7#issuecomment-9000000000" "$stdout"
+  assert_contains "api --method DELETE repos/cariad/tofu/issues/comments/6186912865" "$(<"$TEST_TMPDIR/gh.log")"
+  assert_contains "api --method PATCH repos/cariad/tofu/issues/comments/6186912661 --input -" "$(<"$TEST_TMPDIR/gh.log")"
+  assert_eq "https://github.com/cariad/tofu/pull/18#issuecomment-6186912661" "$stdout"
 }
 
 test_lists_every_page_of_comments() {
-  write
-  assert_contains "api --paginate repos/cariad/tofu/issues/7/comments?per_page=100" "$(<"$TEST_TMPDIR/gh.log")"
+  DIR=infra/new write
+  assert_contains "api --paginate repos/cariad/tofu/issues/18/comments?per_page=100" "$(<"$TEST_TMPDIR/gh.log")"
 }
 
 test_sends_the_body_exactly() {
   {
-    marker infra/blog
+    marker infra/new
     printf -- '-f "quoted" \\ back\\slash @file\n  é\n\n'
   } >"$TEST_TMPDIR/body"
-  write
+
+  DIR=infra/new write
   jq -j .body "$TEST_TMPDIR/gh.stdin" | diff -u "$TEST_TMPDIR/body" -
 }
 
 test_writes_nothing_when_the_pr_has_moved_on() {
-  PR_HEAD=def write
+  HEAD_SHA=abc write
   assert_eq 0 "$status"
   assert_eq "" "$stdout"
-  assert_eq "::notice::Not writing the plan comment, because the PR has moved on from abc to def." "$stderr"
-  assert_eq "api repos/cariad/tofu/pulls/7 --jq .head.sha" "$(<"$TEST_TMPDIR/gh.log")"
+  assert_eq "::notice::Not writing the plan comment, because the PR has moved on from abc to $(pr_head)." "$stderr"
+  assert_eq "api repos/cariad/tofu/pulls/18 --jq .head.sha" "$(<"$TEST_TMPDIR/gh.log")"
 }
 
 test_fails_when_an_input_is_empty() {
@@ -110,9 +107,9 @@ test_fails_when_the_body_is_for_another_directory() {
 }
 
 test_fails_when_the_head_check_fails() {
-  FAIL_CALL=pulls/7 write
+  FAIL_CALL=pulls/18 write
   assert_eq 1 "$status"
-  assert_eq "api repos/cariad/tofu/pulls/7 --jq .head.sha" "$(<"$TEST_TMPDIR/gh.log")"
+  assert_eq "api repos/cariad/tofu/pulls/18 --jq .head.sha" "$(<"$TEST_TMPDIR/gh.log")"
 }
 
 test_fails_when_listing_the_comments_fails() {
