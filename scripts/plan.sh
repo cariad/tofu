@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 #
-# Plans a root module for a pull request and writes the plan to the step's
-# summary. It's the plan action's only step.
+# Plans a root module for a pull request, and writes the plan to the step's
+# summary and to the root module's comment on the PR. It's the plan action's
+# only step.
 #
 # Inputs, as environment variables:
 #
 # - WORKING_DIRECTORY: the action's `working-directory` input.
+# - CARIAD_TOFU_GITHUB_TOKEN: the job's token, which only gh gets.
 # - The runner's GITHUB_EVENT_NAME, GITHUB_EVENT_PATH, GITHUB_OUTPUT,
 #   GITHUB_STEP_SUMMARY, GITHUB_SERVER_URL, GITHUB_REPOSITORY, GITHUB_RUN_ID and
 #   RUNNER_TEMP.
 #
 # Sets the step's `changes` output to `true` or `false`, unless the plan fails.
+# The step fails if the plan fails or the comment can't be written.
 #
 # The plan file and the JSON plan hold secrets in plain text, so they're only
-# written to a private directory under RUNNER_TEMP, which is deleted when this
-# script exits.
+# written to a private directory under RUNNER_TEMP. They're deleted once the
+# comment's body is rendered, and the directory when this script exits.
 #
 # The action runs this script with `exec`, so the runner's signals reach it when
 # the job is cancelled or times out, and it stops tofu then too.
@@ -34,6 +37,7 @@ if [[ ${GITHUB_EVENT_NAME:-} != pull_request ]]; then
 fi
 
 command -v tofu >/dev/null || fail "tofu isn't on the PATH. Install OpenTofu before the plan action."
+command -v gh >/dev/null || fail "gh isn't on the PATH. The plan action needs a GitHub-hosted Ubuntu runner."
 command -v jq >/dev/null || fail "jq isn't on the PATH. The plan action needs a GitHub-hosted Ubuntu runner."
 
 # jq 1.6 can't run render-comment.sh, which names a variable `$import`, and it
@@ -44,6 +48,9 @@ jq -ne '1 as $import | ("100000000000000001" | fromjson | tojson) == "1000000000
 
 sha=$(jq -r '.pull_request.head.sha // empty' "$GITHUB_EVENT_PATH")
 [[ -n $sha ]] || fail "The pull_request event has no head commit."
+
+pr=$(jq -r '.pull_request.number // empty' "$GITHUB_EVENT_PATH")
+[[ -n $pr ]] || fail "The pull_request event has no PR number."
 
 # A leading `./` and any trailing `/` are removed, so `./infra/` and `infra` are
 # the same root module. The ranges are ASCII-only in every locale, because
@@ -79,6 +86,15 @@ export TF_IN_AUTOMATION=1 TF_INPUT=0
 # TF_LOG output can include secrets, such as request bodies, so it's never
 # printed.
 unset "${!TF_LOG@}"
+
+# The job's token is given only to gh, so tofu and its providers can't pick it
+# up by accident: as GH_TOKEN, GitHub's provider would quietly use it, through
+# `gh auth token`. A process that looks for it could still read it from this
+# script's starting environment.
+[[ -n ${CARIAD_TOFU_GITHUB_TOKEN:-} ]] ||
+  fail "The plan action has no GitHub token. Its step sets CARIAD_TOFU_GITHUB_TOKEN from github.token."
+github_token=$CARIAD_TOFU_GITHUB_TOKEN
+unset CARIAD_TOFU_GITHUB_TOKEN
 
 tofu version
 
@@ -138,20 +154,46 @@ token=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
 echo "::stop-commands::$token"
 result=0
 run_tofu || result=$?
+# tofu has finished, so there's nothing left for `stop` to stop.
+child=
 echo "::$token::"
 
 if ((result == 1)); then status=plan-failed; else status=planned; fi
 
 DIR=$dir STATUS=$status SHA=$sha RUN_URL=$run_url PLAN_TEXT=$tmp/plan.txt PLAN_JSON=$tmp/plan.json \
   bash "$(dirname "$0")/render-comment.sh" >"$tmp/body.md"
-cat "$tmp/body.md" >>"$GITHUB_STEP_SUMMARY"
 
-if ((result == 1)); then
-  fail "The plan for $dir failed. tofu's output above says why."
-fi
+# Only the body is needed from here, so delete the rest now. A cancellation
+# waits for gh (below), and if the runner kills this script before gh
+# finishes, the EXIT trap never runs.
+rm -f -- "$tmp/plan" "$tmp/plan.json" "$tmp/plan.txt"
+
+cat "$tmp/body.md" >>"$GITHUB_STEP_SUMMARY"
 
 if ((result == 2)); then
   echo "changes=true" >>"$GITHUB_OUTPUT"
-else
+elif ((result == 0)); then
   echo "changes=false" >>"$GITHUB_OUTPUT"
 fi
+
+# Before the comment, so a failed write doesn't hide it.
+if ((result == 1)); then
+  echo "::error::The plan for $dir failed. tofu's output above says why." >&2
+fi
+
+# After the summary and the output, so they're still there if this fails. gh
+# runs in the foreground, so a cancellation waits for the whole write,
+# including its clean-up after a race. There's no URL if the PR has moved on,
+# because the newer commit's run writes the comment.
+#
+# gh gets none of the consumer's GH_* settings, such as GH_HOST or GH_DEBUG,
+# though tofu still does.
+url=$(
+  unset "${!GH_@}"
+  GH_TOKEN=$github_token GH_TELEMETRY=false REPO=$GITHUB_REPOSITORY PR=$pr DIR=$dir HEAD_SHA=$sha \
+    BODY=$tmp/body.md bash "$(dirname "$0")/write-comment.sh"
+) || fail "Couldn't write the plan comment for $dir. The error above says why."
+
+[[ -z $url ]] || echo "The plan comment for $dir is at $url"
+
+((result != 1)) || exit 1

@@ -1,20 +1,25 @@
 # shellcheck shell=bash
 #
 # Tests for scripts/plan.sh, with a stand-in `tofu` that prints the real plans
-# of the fixture it's pointed at. The stand-in is first on the PATH, so the
-# tests never reach a real `tofu`.
+# of the fixture it's pointed at, and a stand-in `gh`. The stand-ins are first
+# on the PATH, so the tests never reach a real `tofu` or `gh`.
 
 # shellcheck source=tests/lib/assert.sh
 source tests/lib/assert.sh
 
+# shellcheck source=tests/lib/gh.sh
+source tests/lib/gh.sh
+
 # Puts a stand-in `tofu` in $TEST_TMPDIR/bin. It logs each call's arguments to
-# $TEST_TMPDIR/tofu.log.
+# $TEST_TMPDIR/tofu.log, and the PID of the step that ran it (plan.sh's) to
+# $TEST_TMPDIR/step.pid.
 #
 # - `init` exits INIT_STATUS (default 0).
 # - `plan` writes a plan file to its `-out` path, notes what it sees in
-#   $TEST_TMPDIR/tofu.seen, prints PLAN_SAYS if it's set, and exits PLAN_STATUS
-#   (default 2). With PLAN_HANGS set, it writes its PID to $TEST_TMPDIR/tofu.pid
-#   and sleeps instead, ignoring SIGTERM if PLAN_HANGS is `stubborn`.
+#   $TEST_TMPDIR/tofu.seen and the tokens it sees in $TEST_TMPDIR/tofu.tokens,
+#   prints PLAN_SAYS if it's set, and exits PLAN_STATUS (default 2). With
+#   PLAN_HANGS set, it writes its PID to $TEST_TMPDIR/tofu.pid and sleeps
+#   instead, ignoring SIGTERM if PLAN_HANGS is `stubborn`.
 # - `show` prints the `-chdir` directory's plan.txt, or plan.json with `-json`,
 #   and exits SHOW_STATUS (default 0).
 stub_tofu() {
@@ -23,6 +28,7 @@ stub_tofu() {
 #!/usr/bin/env bash
 set -euo pipefail
 echo "$*" >>"$TEST_TMPDIR/tofu.log"
+echo "$PPID" >"$TEST_TMPDIR/step.pid"
 dir=${1#-chdir=}
 case "$1 ${2:-}" in
   "version ") echo "OpenTofu v1.13.1" ;;
@@ -38,6 +44,8 @@ case "$1 ${2:-}" in
       echo "private $(find "${out%/*}" -maxdepth 0 -perm 700)"
       echo "TF_IN_AUTOMATION=${TF_IN_AUTOMATION-unset} TF_INPUT=${TF_INPUT-unset} TF_LOG=${TF_LOG-unset}"
     } >"$TEST_TMPDIR/tofu.seen"
+    # Apart, so no other test prints a real GH_TOKEN of yours if it fails.
+    echo "CARIAD_TOFU_GITHUB_TOKEN=${CARIAD_TOFU_GITHUB_TOKEN-unset} GH_TOKEN=${GH_TOKEN-unset}" >"$TEST_TMPDIR/tofu.tokens"
     [[ -z ${PLAN_SAYS:-} ]] || echo "$PLAN_SAYS"
     if [[ -n ${PLAN_HANGS:-} ]]; then
       echo $$ >"$TEST_TMPDIR/tofu.pid"
@@ -54,12 +62,12 @@ esac
 EOF
   chmod +x "$TEST_TMPDIR/bin/tofu"
   mkdir -p "$TEST_TMPDIR/runner-temp"
-  [[ -e $TEST_TMPDIR/event.json ]] || echo '{"pull_request": {"head": {"sha": "0123abc"}}}' >"$TEST_TMPDIR/event.json"
+  [[ -e $TEST_TMPDIR/event.json ]] || echo '{"pull_request": {"number": 7, "head": {"sha": "abc"}}}' >"$TEST_TMPDIR/event.json"
 }
 
 # Runs COMMAND with the environment the runner gives the plan action's step on a
-# pull_request, with the stand-in `tofu` first on the PATH. Set EVENT,
-# WORKING_DIRECTORY or STEP_PATH to change those.
+# pull_request, with the stand-ins first on the PATH. Set EVENT,
+# WORKING_DIRECTORY, CARIAD_TOFU_GITHUB_TOKEN or STEP_PATH to change those.
 #
 # Usage: in_step COMMAND [ARG...]
 in_step() {
@@ -72,6 +80,7 @@ in_step() {
     GITHUB_RUN_ID=1 \
     RUNNER_TEMP="$TEST_TMPDIR/runner-temp" \
     WORKING_DIRECTORY="${WORKING_DIRECTORY-tests/fixtures/changes}" \
+    CARIAD_TOFU_GITHUB_TOKEN="${CARIAD_TOFU_GITHUB_TOKEN-the-jobs-token}" \
     PATH="${STEP_PATH-$TEST_TMPDIR/bin:$PATH}" \
     "$@"
 }
@@ -79,6 +88,7 @@ in_step() {
 # Runs scripts/plan.sh as the plan action's step.
 run_plan() {
   stub_tofu
+  stub_gh
   touch "$TEST_TMPDIR/output" "$TEST_TMPDIR/summary"
   capture in_step "$BASH" scripts/plan.sh
 }
@@ -87,9 +97,19 @@ run_plan() {
 #
 # Usage: rendered FIXTURE STATUS
 rendered() {
-  DIR=tests/fixtures/$1 STATUS=$2 SHA=0123abc RUN_URL=https://github.com/cariad/tofu/actions/runs/1 \
+  DIR=tests/fixtures/$1 STATUS=$2 SHA=abc RUN_URL=https://github.com/cariad/tofu/actions/runs/1 \
     PLAN_TEXT=tests/fixtures/$1/plan.txt PLAN_JSON=tests/fixtures/$1/plan.json \
     bash scripts/render-comment.sh
+}
+
+# Checks the stand-in `gh` created PR 7's comment, with what render-comment.sh
+# renders for FIXTURE with STATUS as its body.
+#
+# Usage: assert_commented FIXTURE STATUS
+assert_commented() {
+  assert_contains "api --method POST repos/cariad/tofu/issues/7/comments --input -" "$(<"$TEST_TMPDIR/gh.log")"
+  jq -j .body "$TEST_TMPDIR/gh.stdin" >"$TEST_TMPDIR/comment"
+  rendered "$1" "$2" | diff -u - "$TEST_TMPDIR/comment"
 }
 
 # Prints the stand-in's log with the private directory's path replaced by TMP.
@@ -102,6 +122,8 @@ test_plans_a_root_module_with_changes() {
   assert_eq 0 "$status"
   assert_eq "changes=true" "$(<"$TEST_TMPDIR/output")"
   rendered changes planned | diff -u - "$TEST_TMPDIR/summary"
+  assert_commented changes planned
+  assert_contains "The plan comment for tests/fixtures/changes is at https://github.com/cariad/tofu/pull/7#issuecomment-9000000001" "$stdout"
   assert_eq "version
 -chdir=tests/fixtures/changes init -input=false -lockfile=readonly
 -chdir=tests/fixtures/changes plan -input=false -lock=false -no-color -detailed-exitcode -out=TMP/plan
@@ -114,6 +136,7 @@ test_plans_a_root_module_without_changes() {
   assert_eq 0 "$status"
   assert_eq "changes=false" "$(<"$TEST_TMPDIR/output")"
   rendered empty planned | diff -u - "$TEST_TMPDIR/summary"
+  assert_commented empty planned
 }
 
 test_reports_a_failed_plan() {
@@ -122,6 +145,7 @@ test_reports_a_failed_plan() {
   assert_contains "::error::The plan for tests/fixtures/failing-precondition failed." "$stderr"
   assert_eq "" "$(<"$TEST_TMPDIR/output")"
   rendered failing-precondition plan-failed | diff -u - "$TEST_TMPDIR/summary"
+  assert_commented failing-precondition plan-failed
   [[ $(<"$TEST_TMPDIR/tofu.log") != *show* ]] || fail "it showed a failed plan"
 }
 
@@ -143,6 +167,55 @@ test_deletes_the_plan_when_it_finishes() {
   assert_eq "" "$(ls -A "$TEST_TMPDIR/runner-temp")"
   PLAN_STATUS=1 run_plan
   assert_eq "" "$(ls -A "$TEST_TMPDIR/runner-temp")"
+}
+
+test_deletes_the_plan_before_writing_the_comment() {
+  run_plan
+  assert_eq "body.md" "$(<"$TEST_TMPDIR/gh.saw")"
+}
+
+test_fails_when_the_comment_cannot_be_written() {
+  FAIL_CALL=--method run_plan
+  assert_eq 1 "$status"
+  assert_eq "gh: the call failed
+::error::Couldn't write the plan comment for tests/fixtures/changes. The error above says why." "$stderr"
+  # The plan worked, so its summary and output are still there.
+  rendered changes planned | diff -u - "$TEST_TMPDIR/summary"
+  assert_eq "changes=true" "$(<"$TEST_TMPDIR/output")"
+  assert_eq "" "$(ls -A "$TEST_TMPDIR/runner-temp")"
+}
+
+test_reports_a_failed_plan_when_the_comment_cannot_be_written_either() {
+  WORKING_DIRECTORY=tests/fixtures/failing-precondition PLAN_STATUS=1 FAIL_CALL=--method run_plan
+  assert_eq 1 "$status"
+  assert_contains "::error::The plan for tests/fixtures/failing-precondition failed." "$stderr"
+  assert_contains "::error::Couldn't write the plan comment for tests/fixtures/failing-precondition." "$stderr"
+}
+
+test_writes_no_comment_when_the_pr_has_moved_on() {
+  PR_HEAD=def run_plan
+  assert_eq 0 "$status"
+  assert_eq "::notice::Not writing the plan comment, because the PR has moved on from abc to def." "$stderr"
+  [[ $stdout != *"plan comment"* ]] || fail "it printed a comment URL"
+  [[ $(<"$TEST_TMPDIR/gh.log") != *--method* ]] || fail "it wrote a comment anyway"
+}
+
+test_gives_the_jobs_token_to_gh_only() {
+  # A GH_TOKEN of the consumer's own still reaches tofu.
+  GH_TOKEN=the-consumers-token run_plan
+  assert_eq "CARIAD_TOFU_GITHUB_TOKEN=unset GH_TOKEN=the-consumers-token" "$(<"$TEST_TMPDIR/tofu.tokens")"
+  assert_contains "GH_TOKEN=the-jobs-token " "$(<"$TEST_TMPDIR/gh.env")"
+}
+
+test_turns_off_gh_telemetry() {
+  run_plan
+  assert_contains "GH_TELEMETRY=false" "$(<"$TEST_TMPDIR/gh.env")"
+}
+
+test_gives_gh_none_of_the_consumers_gh_settings() {
+  GH_HOST=ghes.example.com run_plan
+  assert_eq 0 "$status"
+  assert_contains "GH_HOST=unset" "$(<"$TEST_TMPDIR/gh.env")"
 }
 
 test_keeps_the_plan_private() {
@@ -181,8 +254,24 @@ test_refuses_an_event_without_a_head_commit() {
   [[ ! -e $TEST_TMPDIR/tofu.log ]] || fail "it ran tofu anyway"
 }
 
+test_refuses_an_event_without_a_pr_number() {
+  echo '{"pull_request": {"head": {"sha": "abc"}}}' >"$TEST_TMPDIR/event.json"
+  run_plan
+  assert_eq 1 "$status"
+  assert_eq "::error::The pull_request event has no PR number." "$stderr"
+  [[ ! -e $TEST_TMPDIR/tofu.log ]] || fail "it ran tofu anyway"
+}
+
+test_refuses_to_run_without_the_jobs_token() {
+  CARIAD_TOFU_GITHUB_TOKEN='' run_plan
+  assert_eq 1 "$status"
+  assert_eq "::error::The plan action has no GitHub token. Its step sets CARIAD_TOFU_GITHUB_TOKEN from github.token." "$stderr"
+  [[ ! -e $TEST_TMPDIR/tofu.log ]] || fail "it ran tofu anyway"
+}
+
 test_plans_the_workspace_root_by_default() {
   stub_tofu
+  stub_gh
   touch "$TEST_TMPDIR/output" "$TEST_TMPDIR/summary"
   # The action's default, `.`, run from inside a fixture.
   # shellcheck disable=SC2016 # $0 is for the inner bash.
@@ -223,6 +312,7 @@ test_refuses_a_working_directory_outside_the_workspace_or_spelt_oddly() {
 
 test_refuses_a_working_directory_that_links_outside_the_workspace() {
   stub_tofu
+  stub_gh
   touch "$TEST_TMPDIR/output" "$TEST_TMPDIR/summary"
   mkdir "$TEST_TMPDIR/workspace" "$TEST_TMPDIR/elsewhere"
   ln -s "$TEST_TMPDIR/elsewhere" "$TEST_TMPDIR/workspace/infra"
@@ -244,6 +334,14 @@ test_needs_tofu() {
   STEP_PATH=$TEST_TMPDIR/nothing run_plan
   assert_eq 1 "$status"
   assert_eq "::error::tofu isn't on the PATH. Install OpenTofu before the plan action." "$stderr"
+}
+
+test_needs_gh() {
+  # Only the stand-in `tofu` is on the PATH.
+  stub_tofu
+  STEP_PATH=$TEST_TMPDIR/bin capture in_step "$BASH" scripts/plan.sh
+  assert_eq 1 "$status"
+  assert_eq "::error::gh isn't on the PATH. The plan action needs a GitHub-hosted Ubuntu runner." "$stderr"
 }
 
 test_needs_jq() {
@@ -271,44 +369,54 @@ test_refuses_jq_1_6() {
 }
 
 # Runs the action's `run:` line as the runner does, in the background, and once
-# tofu is planning, stops the step as the runner does when the job is cancelled
-# or times out.
+# FILE exists, stops the step as the runner does when the job is cancelled or
+# times out.
 #
 # Sets `status` to the step's exit status.
 #
 # A bash started in the background ignores SIGINT, so only the runner's SIGTERM
 # is sent.
-stop_the_step_while_planning() {
+#
+# Usage: stop_the_step_when FILE
+stop_the_step_when() {
   stub_tofu
+  stub_gh
   sed -n 's/^ *run: //p' plan/action.yml >"$TEST_TMPDIR/step.sh"
   GITHUB_ACTION_PATH=$PWD/plan in_step \
     bash --noprofile --norc -e -o pipefail "$TEST_TMPDIR/step.sh" >/dev/null 2>&1 &
   local pid=$! i
   for ((i = 0; i < 100; i++)); do
-    [[ -s $TEST_TMPDIR/tofu.pid ]] && break
+    [[ -s $1 ]] && break
     sleep 0.1
   done
 
-  [[ -s $TEST_TMPDIR/tofu.pid ]] || fail "tofu plan never started"
+  [[ -s $1 ]] || fail "$1 never appeared"
 
-  # $pid is the subshell running in_step. The runner signals the step's own
-  # process, plan.sh after its `exec`, which started tofu.
-  kill -TERM $(($(ps -o ppid= -p "$(<"$TEST_TMPDIR/tofu.pid")")))
+  # The runner signals only the step's own process: plan.sh, after its `exec`.
+  kill -TERM "$(<"$TEST_TMPDIR/step.pid")"
 
   status=0
   wait "$pid" || status=$?
 }
 
 test_stops_tofu_and_deletes_the_plan_when_the_runner_stops_the_step() {
-  PLAN_HANGS=1 stop_the_step_while_planning
+  PLAN_HANGS=1 stop_the_step_when "$TEST_TMPDIR/tofu.pid"
   assert_eq 143 "$status"
   assert_eq "" "$(ls -A "$TEST_TMPDIR/runner-temp")"
   ! kill -0 "$(<"$TEST_TMPDIR/tofu.pid")" 2>/dev/null || fail "the step ended before tofu stopped"
 }
 
 test_deletes_the_plan_when_tofu_will_not_stop() {
-  PLAN_HANGS=stubborn stop_the_step_while_planning
+  PLAN_HANGS=stubborn stop_the_step_when "$TEST_TMPDIR/tofu.pid"
   kill -KILL "$(<"$TEST_TMPDIR/tofu.pid")"
   assert_eq 143 "$status"
+  assert_eq "" "$(ls -A "$TEST_TMPDIR/runner-temp")"
+}
+
+test_finishes_writing_the_comment_when_the_runner_stops_the_step() {
+  HANG_CALL='--method POST' stop_the_step_when "$TEST_TMPDIR/gh.pid"
+  assert_eq 143 "$status"
+  # The write finished, including its check for a race, before the step ended.
+  assert_eq "api --paginate repos/cariad/tofu/issues/7/comments?per_page=100" "$(tail -n 1 "$TEST_TMPDIR/gh.log")"
   assert_eq "" "$(ls -A "$TEST_TMPDIR/runner-temp")"
 }

@@ -1,5 +1,7 @@
 name: OpenTofu plan
-description: Plans an OpenTofu root module for a pull request
+description: >-
+  Plans an OpenTofu root module for a pull request, and writes the plan to the
+  root module's comment on the PR. Its job needs `pull-requests: write`.
 
 inputs:
   working-directory:
@@ -16,7 +18,7 @@ outputs:
   changes:
     description: >-
       `true` if the plan has changes, or `false` if it has none. Empty if the
-      plan failed.
+      plan failed. Set even if the step then fails to write the comment.
     value: ${{ steps.plan.outputs.changes }}
 
 runs:
@@ -26,6 +28,10 @@ runs:
       id: plan
       shell: bash
       env:
+        # Not GH_TOKEN, which tofu and its providers would see.
+        #
+        # `plan.sh` keeps it from them and gives it only to gh.
+        CARIAD_TOFU_GITHUB_TOKEN: ${{ github.token }}
         WORKING_DIRECTORY: ${{ inputs.working-directory }}
       # `exec`, so the runner's signals reach plan.sh and it deletes the plan
       # when the job is cancelled or times out.

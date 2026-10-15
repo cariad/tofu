@@ -6,50 +6,8 @@
 # shellcheck source=tests/lib/assert.sh
 source tests/lib/assert.sh
 
-# Puts a stand-in `gh` in $TEST_TMPDIR/bin.
-#
-# Logs each call's arguments to $TEST_TMPDIR/gh.log and any request body to
-# $TEST_TMPDIR/gh.stdin.
-#
-# Prints GH_HEAD (or `abc`) as the PR's head, and the captured comments as the
-# listing, with $TEST_TMPDIR/gh.extra added after the first.
-#
-# A write prints the comment's ID and URL; a new comment's ID is 9000000001.
-#
-# A call whose arguments contain GH_FAIL fails instead.
-stub_gh() {
-  mkdir -p "$TEST_TMPDIR/bin"
-  cat >"$TEST_TMPDIR/bin/gh" <<'EOF'
-#!/usr/bin/env bash
-echo "$*" >>"$TEST_TMPDIR/gh.log"
-if [[ $* == *--input* ]]; then
-  cat >"$TEST_TMPDIR/gh.stdin"
-fi
-if [[ -n ${GH_FAIL:-} && $* == *"$GH_FAIL"* ]]; then
-  echo "gh: the call failed" >&2
-  exit 1
-fi
-case $* in
-  *" repos/cariad/tofu/pulls/7 "*) echo "${GH_HEAD:-abc}" ;;
-  *--paginate*)
-    if [[ -e $TEST_TMPDIR/gh.listed && -e $TEST_TMPDIR/gh.extra ]]; then
-      jq -s add tests/fixtures/github/comments.json "$TEST_TMPDIR/gh.extra"
-    else
-      cat tests/fixtures/github/comments.json
-    fi
-    touch "$TEST_TMPDIR/gh.listed"
-    ;;
-  *"--method POST "*) echo "9000000001 https://github.com/cariad/tofu/pull/7#issuecomment-9000000001" ;;
-  *"--method PATCH "*)
-    args=$*
-    id=${args##*comments/}
-    id=${id%% *}
-    echo "$id https://github.com/cariad/tofu/pull/7#issuecomment-$id"
-    ;;
-esac
-EOF
-  chmod +x "$TEST_TMPDIR/bin/gh"
-}
+# shellcheck source=tests/lib/gh.sh
+source tests/lib/gh.sh
 
 # Prints a marker line for DIR.
 #
@@ -129,7 +87,7 @@ test_sends_the_body_exactly() {
 }
 
 test_writes_nothing_when_the_pr_has_moved_on() {
-  GH_HEAD=def write
+  PR_HEAD=def write
   assert_eq 0 "$status"
   assert_eq "" "$stdout"
   assert_eq "::notice::Not writing the plan comment, because the PR has moved on from abc to def." "$stderr"
@@ -152,19 +110,19 @@ test_fails_when_the_body_is_for_another_directory() {
 }
 
 test_fails_when_the_head_check_fails() {
-  GH_FAIL=pulls/7 write
+  FAIL_CALL=pulls/7 write
   assert_eq 1 "$status"
   assert_eq "api repos/cariad/tofu/pulls/7 --jq .head.sha" "$(<"$TEST_TMPDIR/gh.log")"
 }
 
 test_fails_when_listing_the_comments_fails() {
-  GH_FAIL=--paginate write
+  FAIL_CALL=--paginate write
   assert_eq 1 "$status"
   [[ $(<"$TEST_TMPDIR/gh.log") != *--method* ]] || fail "it wrote a comment anyway"
 }
 
 test_fails_when_writing_the_comment_fails() {
-  GH_FAIL=PATCH write
+  FAIL_CALL=PATCH write
   assert_eq 1 "$status"
   assert_contains "gh: the call failed" "$stderr"
 }

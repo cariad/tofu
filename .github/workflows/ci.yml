@@ -8,6 +8,12 @@ on:
 
 permissions: {}
 
+# A newer push to a PR cancels the PR's older run, so two runs never write the
+# same plan comments at once. Each push to main has a group of its own.
+concurrency:
+  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+
 env:
   # Fail if `.config/mise.lock` is out of date:
   MISE_LOCKED: 1
@@ -78,11 +84,32 @@ jobs:
         run: mise run test
 
   test-plan:
-    # Runs the plan action on some of the fixtures, as a consumer would. The
-    # action only runs on pull_request.
-    if: github.event_name == 'pull_request'
+    # Runs the plan action on some of the fixtures, as a consumer would, which
+    # writes their comments on the PR.
+    #
+    # The action only runs on pull_request, and a fork's PR gets a read-only
+    # token, so the action can't write there.
+    #
+    # Dependabot's PRs skip it too, so the actions that they bump never get a
+    # token that can write to PRs — but test-plan-read-only still runs them.
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 10
+
+    concurrency:
+      # Both runners plan each fixture, so they take turns: the first creates
+      # its comment and the second updates it.
+      #
+      # `queue: max` lets more than one job wait, so another runner's job
+      # wouldn't cancel the one waiting.
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number }}-${{ matrix.fixture }}
+      queue: max
+
+    permissions:
+      pull-requests: write  # Create and update the plan comments
 
     strategy:
       fail-fast: false
@@ -114,7 +141,7 @@ jobs:
       - name: Install mise and OpenTofu
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         env:
-          # Only in this step, so only this job gets OpenTofu.
+          # Only in this step, so only the integration jobs get OpenTofu.
           MISE_OPENTOFU_VERSION: 1.13.1  # Sync with `.config/mise.toml`•`lint-fixtures`•`tools`•`opentofu`
         with:
           cache: false  # Restored tools aren't verified, so don't cache them
@@ -137,6 +164,82 @@ jobs:
         run: |
           echo "Outcome: $OUTCOME. Changes: \"$CHANGES\"."
           [[ $OUTCOME == "$WANT_OUTCOME" && $CHANGES == "$WANT_CHANGES" ]]
+          if compgen -G "$RUNNER_TEMP/cariad-tofu.*"; then
+            echo "::error::The plan's private directory is still there."
+            exit 1
+          fi
+
+      - name: Check the PR has one comment for the fixture, from this commit
+        env:
+          DIR: tests/fixtures/${{ matrix.fixture }}
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments?per_page=100" >"$RUNNER_TEMP/comments.json"
+
+          # The comment the plan action finds, chosen by the same script.
+          comment=$(bash scripts/find-comment.sh <"$RUNNER_TEMP/comments.json")
+          if [[ -z $comment ]]; then
+            echo "::error::The PR has no plan comment for $DIR."
+            exit 1
+          fi
+
+          # Without that comment, the script must find no other.
+          id=$(jq .id <<<"$comment")
+          jq -s --argjson id "$id" 'add | map(select(.id != $id))' "$RUNNER_TEMP/comments.json" >"$RUNNER_TEMP/others.json"
+          others=$(bash scripts/find-comment.sh <"$RUNNER_TEMP/others.json")
+          if [[ -n $others ]]; then
+            echo "::error::The PR has more than one plan comment for $DIR. Delete all but the oldest, then re-run."
+            exit 1
+          fi
+
+          sha=$(jq -r '.body | split("\n")[0] | capture("^<!-- cariad/tofu (?<json>.*) -->$").json | fromjson | .sha' <<<"$comment")
+          if [[ $sha != "$SHA" ]]; then
+            echo "::error::The plan comment for $DIR is from $sha, not $SHA."
+            exit 1
+          fi
+
+  test-plan-read-only:
+    # Runs the plan action with a token that can't write the comment, as a
+    # fork's PR gets, and checks the step fails after planning and cleans up.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    permissions:
+      pull-requests: read  # Find the plan comment, but not write it
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install mise and OpenTofu
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        env:
+          # Only in this step, so only the integration jobs get OpenTofu.
+          MISE_OPENTOFU_VERSION: 1.13.1  # Sync with `.config/mise.toml`•`lint-fixtures`•`tools`•`opentofu`
+        with:
+          cache: false  # Restored tools aren't verified, so don't cache them
+          install_args: opentofu  # Only OpenTofu, not the linters
+          version: 2026.10.2  # Sync with `.config/mise.toml`•`min_version`
+
+      - name: Plan a fixture
+        id: plan
+        continue-on-error: true
+        uses: $/plan
+        with:
+          working-directory: tests/fixtures/changes
+
+      - name: Check it planned, failed to write the comment, and cleaned up
+        env:
+          CHANGES: ${{ steps.plan.outputs.changes }}
+          OUTCOME: ${{ steps.plan.outcome }}
+        run: |
+          echo "Outcome: $OUTCOME. Changes: \"$CHANGES\"."
+          [[ $OUTCOME == failure && $CHANGES == true ]]
           if compgen -G "$RUNNER_TEMP/cariad-tofu.*"; then
             echo "::error::The plan's private directory is still there."
             exit 1
