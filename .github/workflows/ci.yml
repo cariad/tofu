@@ -36,7 +36,7 @@ jobs:
           persist-credentials: false
 
       - name: Install mise and the pinned tools
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
         with:
           cache: false  # Restored tools aren't verified, so don't cache them
           version: 2026.10.2  # Sync with `.config/mise.toml`•`min_version`
@@ -75,7 +75,7 @@ jobs:
           persist-credentials: false
 
       - name: Install mise and the pinned tools
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
         with:
           cache: false  # Restored tools aren't verified, so don't cache them
           version: 2026.10.2  # Sync with `.config/mise.toml`•`min_version`
@@ -142,7 +142,7 @@ jobs:
           persist-credentials: false
 
       - name: Install mise and OpenTofu
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
         env:
           # Only in this step, so only the integration jobs get OpenTofu.
           MISE_OPENTOFU_VERSION: 1.13.1  # Sync with `.config/mise.toml`•`lint-fixtures`•`tools`•`opentofu`
@@ -221,7 +221,7 @@ jobs:
           persist-credentials: false
 
       - name: Install mise and OpenTofu
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
         env:
           # Only in this step, so only the integration jobs get OpenTofu.
           MISE_OPENTOFU_VERSION: 1.13.1  # Sync with `.config/mise.toml`•`lint-fixtures`•`tools`•`opentofu`
