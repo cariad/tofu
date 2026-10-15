@@ -62,7 +62,10 @@ esac
 EOF
   chmod +x "$TEST_TMPDIR/bin/tofu"
   mkdir -p "$TEST_TMPDIR/runner-temp"
-  [[ -e $TEST_TMPDIR/event.json ]] || echo '{"pull_request": {"number": 7, "head": {"sha": "abc"}}}' >"$TEST_TMPDIR/event.json"
+
+  # The event for the PR the stand-in `gh` answers for, planned at its head.
+  [[ -e $TEST_TMPDIR/event.json ]] ||
+    printf '{"pull_request": {"number": 18, "head": {"sha": "%s"}}}\n' "$(pr_head)" >"$TEST_TMPDIR/event.json"
 }
 
 # Runs COMMAND with the environment the runner gives the plan action's step on a
@@ -97,17 +100,17 @@ run_plan() {
 #
 # Usage: rendered FIXTURE STATUS
 rendered() {
-  DIR=tests/fixtures/$1 STATUS=$2 SHA=abc RUN_URL=https://github.com/cariad/tofu/actions/runs/1 \
+  DIR=tests/fixtures/$1 STATUS=$2 SHA=$(pr_head) RUN_URL=https://github.com/cariad/tofu/actions/runs/1 \
     PLAN_TEXT=tests/fixtures/$1/plan.txt PLAN_JSON=tests/fixtures/$1/plan.json \
     bash scripts/render-comment.sh
 }
 
-# Checks the stand-in `gh` created PR 7's comment, with what render-comment.sh
+# Checks the stand-in `gh` created PR 18's comment, with what render-comment.sh
 # renders for FIXTURE with STATUS as its body.
 #
 # Usage: assert_commented FIXTURE STATUS
 assert_commented() {
-  assert_contains "api --method POST repos/cariad/tofu/issues/7/comments --input -" "$(<"$TEST_TMPDIR/gh.log")"
+  assert_contains "api --method POST repos/cariad/tofu/issues/18/comments --input -" "$(<"$TEST_TMPDIR/gh.log")"
   jq -j .body "$TEST_TMPDIR/gh.stdin" >"$TEST_TMPDIR/comment"
   rendered "$1" "$2" | diff -u - "$TEST_TMPDIR/comment"
 }
@@ -123,7 +126,7 @@ test_plans_a_root_module_with_changes() {
   assert_eq "changes=true" "$(<"$TEST_TMPDIR/output")"
   rendered changes planned | diff -u - "$TEST_TMPDIR/summary"
   assert_commented changes planned
-  assert_contains "The plan comment for tests/fixtures/changes is at https://github.com/cariad/tofu/pull/7#issuecomment-9000000001" "$stdout"
+  assert_contains "The plan comment for tests/fixtures/changes is at https://github.com/cariad/tofu/pull/18#issuecomment-6186912661" "$stdout"
   assert_eq "version
 -chdir=tests/fixtures/changes init -input=false -lockfile=readonly
 -chdir=tests/fixtures/changes plan -input=false -lock=false -no-color -detailed-exitcode -out=TMP/plan
@@ -193,9 +196,11 @@ test_reports_a_failed_plan_when_the_comment_cannot_be_written_either() {
 }
 
 test_writes_no_comment_when_the_pr_has_moved_on() {
-  PR_HEAD=def run_plan
+  # This run planned an older commit than the PR's head.
+  echo '{"pull_request": {"number": 18, "head": {"sha": "abc"}}}' >"$TEST_TMPDIR/event.json"
+  run_plan
   assert_eq 0 "$status"
-  assert_eq "::notice::Not writing the plan comment, because the PR has moved on from abc to def." "$stderr"
+  assert_eq "::notice::Not writing the plan comment, because the PR has moved on from abc to $(pr_head)." "$stderr"
   [[ $stdout != *"plan comment"* ]] || fail "it printed a comment URL"
   [[ $(<"$TEST_TMPDIR/gh.log") != *--method* ]] || fail "it wrote a comment anyway"
 }
@@ -417,6 +422,6 @@ test_finishes_writing_the_comment_when_the_runner_stops_the_step() {
   HANG_CALL='--method POST' stop_the_step_when "$TEST_TMPDIR/gh.pid"
   assert_eq 143 "$status"
   # The write finished, including its check for a race, before the step ended.
-  assert_eq "api --paginate repos/cariad/tofu/issues/7/comments?per_page=100" "$(tail -n 1 "$TEST_TMPDIR/gh.log")"
+  assert_eq "api --paginate repos/cariad/tofu/issues/18/comments?per_page=100" "$(tail -n 1 "$TEST_TMPDIR/gh.log")"
   assert_eq "" "$(ls -A "$TEST_TMPDIR/runner-temp")"
 }

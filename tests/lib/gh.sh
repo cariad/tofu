@@ -2,25 +2,34 @@
 #
 # A stand-in `gh` for the tests that write comments.
 #
-# Puts a stand-in `gh` in $TEST_TMPDIR/bin, for PR 7 of cariad/tofu, which has
-# the comments captured from a real PR.
+# Puts a stand-in `gh` in $TEST_TMPDIR/bin, for PR 18 of cariad/tofu. It
+# answers with the real responses in tests/fixtures/github, which
+# tests/fixtures/README.md lists, through the call's own `--jq` filter:
+#
+# - The PR: pull.json.
+# - Its comments: STUB_COMMENTS (comments.json by default), and from the
+#   second listing on, STUB_LATER_COMMENTS if it's set.
+# - A new comment: STUB_CREATED (created-1.json by default).
+# - Updating the comment updated.json is: updated.json. It has no answer for
+#   updating any other.
+# - A deleted comment: nothing, as `gh` prints.
 #
 # Logs each call's arguments to $TEST_TMPDIR/gh.log, any request body to
 # $TEST_TMPDIR/gh.stdin, the GH_* settings it's given to $TEST_TMPDIR/gh.env,
 # and what's left in the plan action's private directory, if there is one, to
 # $TEST_TMPDIR/gh.saw.
 #
-# Prints PR_HEAD (or `abc`) as the PR's head, and the captured comments as the
-# listing, with $TEST_TMPDIR/gh.extra added after the first.
-#
-# A write prints the comment's ID and URL; a new comment's ID is 9000000001.
-#
 # A call whose arguments contain FAIL_CALL fails instead. One whose arguments
 # contain HANG_CALL writes its PID to $TEST_TMPDIR/gh.pid and takes a second.
 stub_gh() {
   mkdir -p "$TEST_TMPDIR/bin"
-  # A copy, so the stand-in works from any directory.
-  cp tests/fixtures/github/comments.json "$TEST_TMPDIR/gh.comments"
+
+  # A link, so the stand-in works from any directory.
+  ln -sfn "$PWD/tests/fixtures/github" "$TEST_TMPDIR/github"
+
+  # Each run of a script starts with its first listing.
+  rm -f "$TEST_TMPDIR/gh.listed"
+
   cat >"$TEST_TMPDIR/bin/gh" <<'EOF'
 #!/usr/bin/env bash
 echo "$*" >>"$TEST_TMPDIR/gh.log"
@@ -37,24 +46,31 @@ if [[ -n ${FAIL_CALL:-} && $* == *"$FAIL_CALL"* ]]; then
   echo "gh: the call failed" >&2
   exit 1
 fi
+cd "$TEST_TMPDIR/github"
 case $* in
-  *" repos/cariad/tofu/pulls/7 "*) echo "${PR_HEAD:-abc}" ;;
+  *" repos/cariad/tofu/pulls/18 "*) response=pull.json ;;
   *--paginate*)
-    if [[ -e $TEST_TMPDIR/gh.listed && -e $TEST_TMPDIR/gh.extra ]]; then
-      jq -s add "$TEST_TMPDIR/gh.comments" "$TEST_TMPDIR/gh.extra"
-    else
-      cat "$TEST_TMPDIR/gh.comments"
-    fi
+    response=${STUB_COMMENTS:-comments.json}
+    [[ ! -e $TEST_TMPDIR/gh.listed ]] || response=${STUB_LATER_COMMENTS:-$response}
     touch "$TEST_TMPDIR/gh.listed"
     ;;
-  *"--method POST "*) echo "9000000001 https://github.com/cariad/tofu/pull/7#issuecomment-9000000001" ;;
-  *"--method PATCH "*)
-    args=$*
-    id=${args##*comments/}
-    id=${id%% *}
-    echo "$id https://github.com/cariad/tofu/pull/7#issuecomment-$id"
-    ;;
+  *"--method POST "*) response=${STUB_CREATED:-created-1.json} ;;
+  *"--method PATCH "*"/comments/$(jq .id updated.json) "*) response=updated.json ;;
+  *"--method DELETE "*) exit 0 ;;
+  *) echo "The stand-in gh has no answer for: $*" >&2; exit 1 ;;
 esac
+# A `--jq` filter is always the last argument. For the scripts' filters,
+# `jq -r` prints exactly what `gh` does.
+if [[ $* == *" --jq "* ]]; then
+  jq -r "${!#}" "$response"
+else
+  cat "$response"
+fi
 EOF
   chmod +x "$TEST_TMPDIR/bin/gh"
+}
+
+# Prints the head commit of the PR the stand-in `gh` answers for.
+pr_head() {
+  jq -r .head.sha tests/fixtures/github/pull.json
 }

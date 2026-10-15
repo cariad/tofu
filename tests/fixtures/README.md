@@ -68,3 +68,35 @@ mise exec gh@2.102.0 -- gh api --paginate 'repos/cariad/tofu/issues/<PR>/comment
 | 7 | The bot | A marker for `infra/blog`. |
 | 8 | The bot | A marker for `infra/blog-old`. |
 | 9 | The bot | A marker that isn't JSON. |
+
+The other files are the responses the bot got on test PR #18, from a throwaway workflow that played out a race between two plan runs creating the first comment for `infra/new`, as `scripts/write-comment.sh` does. It ran after the PR's own CI, so the listing also has the plan action's comments for three fixtures. In order:
+
+| File                 | Response to                                                                                                 |
+| -                    | -                                                                                                           |
+| `pull.json`          | Getting the PR.                                                                                             |
+| `created-1.json`     | The first run creating its comment.                                                                         |
+| `created-2.json`     | The second run creating its comment, a duplicate.                                                           |
+| `race-comments.json` | Listing the PR's comments, after both were created.                                                         |
+| `updated.json`       | The second run giving way: it deleted its own comment, which has no response, then updated the first run's. |
+
+To capture them again:
+
+1. Open a PR from a throwaway branch that's never merged, and wait for its CI to finish.
+1. On that PR, have a workflow with `pull-requests: write` make these calls as the bot, in order, saving each response exactly as `gh` printed it, and upload the files as an artifact. `FIRST` and `SECOND` are each a marker for `infra/new` at the PR's head, `<!-- cariad/tofu {"v":1,"dir":"infra/new","status":"planned","sha":"<head>"} -->`, then a line saying which run's comment it is.
+
+   | Call                                                                                | Saved as             |
+   | -                                                                                   | -                    |
+   | `gh api repos/cariad/tofu/pulls/<PR>`                                               | `pull.json`          |
+   | `gh api repos/cariad/tofu/issues/<PR>/comments -f body="$FIRST"`                    | `created-1.json`     |
+   | `gh api repos/cariad/tofu/issues/<PR>/comments -f body="$SECOND"`                   | `created-2.json`     |
+   | `gh api --paginate 'repos/cariad/tofu/issues/<PR>/comments?per_page=100'`           | `race-comments.json` |
+   | `gh api --method DELETE repos/cariad/tofu/issues/comments/<second> --silent`        | Nothing              |
+   | `gh api --method PATCH repos/cariad/tofu/issues/comments/<first> -f body="$SECOND"` | `updated.json`       |
+
+1. Download the artifact into `tests/fixtures/github/`. `gh` won't overwrite a file, so move the old ones out of the way first.
+
+   ```bash
+   mise exec gh@2.102.0 -- gh run download <run> --repo cariad/tofu --name <artifact> --dir tests/fixtures/github
+   ```
+
+1. Update the PR number and the comment IDs in `tests/lib/gh.sh` and the tests.
